@@ -4771,6 +4771,31 @@ struct test_sum_rows : public test_case {
     }
 };
 
+// GGML_OP_CUMSUM
+struct test_cumsum : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne;
+
+    std::string vars() override {
+        return VARS_TO_STR2(type, ne);
+    }
+
+    test_cumsum(ggml_type type = GGML_TYPE_F32,
+            std::array<int64_t, 4> ne = {10, 5, 4, 3})
+        : type(type), ne(ne) {}
+
+    ggml_tensor * build_graph(ggml_context * ctx) override {
+        ggml_tensor * a = ggml_new_tensor(ctx, type, 4, ne.data());
+        ggml_set_param(a);
+        ggml_set_name(a, "a");
+
+        ggml_tensor * out = ggml_cumsum(ctx, a);
+        ggml_set_name(out, "out");
+
+        return out;
+    }
+};
+
 // GGML_OP_MEAN
 struct test_mean : public test_case {
     const ggml_type type;
@@ -6871,6 +6896,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(bool verbose
     test_cases.emplace_back(new test_arange());
     test_cases.emplace_back(new test_timestep_embedding());
     test_cases.emplace_back(new test_leaky_relu());
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32, { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32, { 13, 15, 26, 15 }));
 
     for (bool v : {false, true}) {
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {512, 512, 1, 1}, 0, 1, 0, 1, 0, 0, 0, 0, v));
