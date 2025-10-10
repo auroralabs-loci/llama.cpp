@@ -6896,8 +6896,11 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(bool verbose
     test_cases.emplace_back(new test_arange());
     test_cases.emplace_back(new test_timestep_embedding());
     test_cases.emplace_back(new test_leaky_relu());
-    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32, { 4, 2, 2, 1 }));
-    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32, { 13, 15, 26, 15 }));
+
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 15, 26, 12 }));
 
     for (bool v : {false, true}) {
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {512, 512, 1, 1}, 0, 1, 0, 1, 0, 0, 0, 0, v));
@@ -7054,6 +7057,11 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
 
     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32, 16416, 1, 128, {8,  1}, {4, 1}, {0, 2, 1, 3}));
     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F32, 128, 1, 16416, {8,  1}, {4, 1}, {0, 1, 2, 3}, true));
+
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 15, 26, 12 }));
 
     for (int bs : {1, 2, 3, 4, 5, 8, 512}) {
         for (ggml_type type_a : all_types) {
