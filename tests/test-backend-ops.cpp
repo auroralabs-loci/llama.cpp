@@ -4796,6 +4796,35 @@ struct test_cumsum : public test_case {
     }
 };
 
+// GGML_OP_TRI
+struct test_tri : public test_case {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne;
+    const ggml_tri_type tri_type;
+    const float c;
+
+    std::string vars() override {
+        return VARS_TO_STR4(type, ne, tri_type, c);
+    }
+
+    test_tri(ggml_tri_type tri_type,
+             ggml_type type = GGML_TYPE_F32,
+             std::array<int64_t, 4> ne = {10, 10, 1, 1},
+             float c = nan(""))
+        : type(type), ne(ne), tri_type(tri_type), c(c) {}
+
+    ggml_tensor * build_graph(ggml_context * ctx) override {
+        ggml_tensor * a = ggml_new_tensor(ctx, type, 4, ne.data());
+        ggml_set_param(a);
+        ggml_set_name(a, "a");
+
+        ggml_tensor * out = ggml_tri(ctx, a, c, tri_type);
+        ggml_set_name(out, "out");
+
+        return out;
+    }
+};
+
 // GGML_OP_MEAN
 struct test_mean : public test_case {
     const ggml_type type;
@@ -6902,6 +6931,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(bool verbose
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 15, 26, 12 }));
 
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER_DIAG));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER, GGML_TYPE_F16));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER, GGML_TYPE_BF16));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
+
     for (bool v : {false, true}) {
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {512, 512, 1, 1}, 0, 1, 0, 1, 0, 0, 0, 0, v));
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {11, 22, 33, 44}, 1, 2, 3, 4, 5, 6, 7, 8, v));
@@ -7062,6 +7102,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 15, 26, 12 }));
+
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER_DIAG));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER, GGML_TYPE_F16));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER, GGML_TYPE_BF16));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
 
     for (int bs : {1, 2, 3, 4, 5, 8, 512}) {
         for (ggml_type type_a : all_types) {
