@@ -2271,6 +2271,7 @@ static void ggml_compute_forward_tri_f32(const ggml_compute_params * params, ggm
     float c = *((float *) &(dst->op_params[1]));
     bool keep_org_val = isnan(c);
 
+    // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));
     GGML_ASSERT(src0->ne[0] == src0->ne[1]);
 
@@ -2297,6 +2298,7 @@ static void ggml_compute_forward_tri_f16(const ggml_compute_params * params, ggm
     const float c = *((float *) &(dst->op_params[1]));
     bool keep_org_val = isnan(c);
 
+    // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));
     GGML_ASSERT(src0->ne[0] == src0->ne[1]);
 
@@ -2323,6 +2325,7 @@ static void ggml_compute_forward_tri_bf16(const ggml_compute_params * params, gg
     float c = *((float *) &(dst->op_params[1]));
     bool keep_org_val = isnan(c);
 
+    // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));
     GGML_ASSERT(src0->ne[0] == src0->ne[1]);
 
