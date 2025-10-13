@@ -1451,16 +1451,31 @@ inline static void ggml_vec_sum_bf16_ggf(const int n, float * s, const ggml_bf16
 //   keep_org_val - if true, keep original value where mask applies; otherwise use constant 'c'
 //   c            - constant value to use when not keeping original value
 //   type         - type of triangular mask (lower, upper, etc.)
+inline static bool _ggml_vec_tri_cmp(const int i, const int r, const enum ggml_tri_type type) {
+    switch (type) {
+        case GGML_TRI_TYPE_LOWER:      return i < r; break;
+        case GGML_TRI_TYPE_LOWER_DIAG: return i <= r; break;
+        case GGML_TRI_TYPE_UPPER:      return i > r; break;
+        case GGML_TRI_TYPE_UPPER_DIAG: return i >= r; break;
+    }
+}
+
 inline static void ggml_vec_tri_f32(const int n, const int r, float * dst, const float * src, bool keep_org_val, float c, enum ggml_tri_type type) {
     for (int i = 0; i < n; ++i) {
-        bool cmp;
-        switch (type) {
-            case GGML_TRI_TYPE_LOWER: cmp = i < r; break;
-            case GGML_TRI_TYPE_LOWER_DIAG: cmp = i <= r; break;
-            case GGML_TRI_TYPE_UPPER: cmp = i > r; break;
-            case GGML_TRI_TYPE_UPPER_DIAG: cmp = i >= r; break;
-        }
-        dst[i] = cmp ? (keep_org_val ? src[i] : c) : 0.0f;
+        dst[i] = _ggml_vec_tri_cmp(i, r, type) ? (keep_org_val ? src[i] : c) : 0.0f;
+    }
+}
+
+inline static void ggml_vec_tri_f16(const int n, const int r, ggml_fp16_t * dst, const ggml_fp16_t * src, bool keep_org_val, ggml_fp16_t c, enum ggml_tri_type type) {
+    for (int i = 0; i < n; ++i) {
+        dst[i] = _ggml_vec_tri_cmp(i, r, type) ? (keep_org_val ? src[i] : c) : 0;
+    }
+}
+
+inline static void ggml_vec_tri_bf16(const int n, const int r, ggml_bf16_t * dst, const ggml_bf16_t * src, bool keep_org_val, ggml_bf16_t c, enum ggml_tri_type type) {
+    const ggml_bf16_t zero = ggml_fp32_to_bf16(0);
+    for (int i = 0; i < n; ++i) {
+        dst[i] = _ggml_vec_tri_cmp(i, r, type) ? (keep_org_val ? src[i] : c) : zero;
     }
 }
 

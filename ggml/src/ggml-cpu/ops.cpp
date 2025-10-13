@@ -2283,9 +2283,61 @@ static void ggml_compute_forward_tri_f32(const ggml_compute_params * params, ggm
         const int64_t i02 = (ir - i03*ne02*ne01)/ne01;
         const int64_t i01 = (ir - i03*ne02*ne01 - i02*ne01);
 
-        float        * dst_ptr  = (float  *)       ((char *)       dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
-        float        * src  = (float  *)           ((char *)       src0->data  + i03*nb03  + i02*nb02  + i01*nb01 );
+        float * dst_ptr = (float *)((char *) dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
+        float * src     = (float *)((char *) src0->data  + i03*nb03  + i02*nb02  + i01*nb01 );
         ggml_vec_tri_f32(ne0, i01, dst_ptr, src, keep_org_val, c, ttype);
+    }
+
+}
+
+static void ggml_compute_forward_tri_f16(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+
+    ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
+    const float c = *((float *) &(dst->op_params[1]));
+    bool keep_org_val = isnan(c);
+
+    GGML_ASSERT(ggml_is_contiguous(src0));
+    GGML_ASSERT(src0->ne[0] == src0->ne[1]);
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    const auto [ir0, ir1] = get_thread_range(params, src0);
+
+    for (int64_t ir = ir0; ir < ir1; ++ir) {
+        const int64_t i03 = ir/(ne02*ne01);
+        const int64_t i02 = (ir - i03*ne02*ne01)/ne01;
+        const int64_t i01 = (ir - i03*ne02*ne01 - i02*ne01);
+
+        ggml_fp16_t * dst_ptr = (ggml_fp16_t *)((char *) dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
+        ggml_fp16_t * src     = (ggml_fp16_t *)((char *) src0->data  + i03*nb03  + i02*nb02  + i01*nb01 );
+        ggml_vec_tri_f16(ne0, i01, dst_ptr, src, keep_org_val, GGML_FP32_TO_FP16(c), ttype);
+    }
+
+}
+
+static void ggml_compute_forward_tri_bf16(const ggml_compute_params * params, ggml_tensor * dst) {
+    const ggml_tensor * src0 = dst->src[0];
+
+    ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
+    float c = *((float *) &(dst->op_params[1]));
+    bool keep_org_val = isnan(c);
+
+    GGML_ASSERT(ggml_is_contiguous(src0));
+    GGML_ASSERT(src0->ne[0] == src0->ne[1]);
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    const auto [ir0, ir1] = get_thread_range(params, src0);
+
+    for (int64_t ir = ir0; ir < ir1; ++ir) {
+        const int64_t i03 = ir/(ne02*ne01);
+        const int64_t i02 = (ir - i03*ne02*ne01)/ne01;
+        const int64_t i01 = (ir - i03*ne02*ne01 - i02*ne01);
+
+        ggml_bf16_t * dst_ptr = (ggml_bf16_t *)((char *) dst->data  + i03*nb3  + i02*nb2  + i01*nb1 );
+        ggml_bf16_t * src     = (ggml_bf16_t *)((char *) src0->data  + i03*nb03  + i02*nb02  + i01*nb01 );
+        ggml_vec_tri_bf16(ne0, i01, dst_ptr, src, keep_org_val, GGML_FP32_TO_BF16(c), ttype);
     }
 
 }
@@ -2297,6 +2349,14 @@ void ggml_compute_forward_tri(const ggml_compute_params * params, ggml_tensor * 
         case GGML_TYPE_F32:
             {
                 ggml_compute_forward_tri_f32(params, dst);
+            } break;
+        case GGML_TYPE_F16:
+            {
+                ggml_compute_forward_tri_f16(params, dst);
+            } break;
+        case GGML_TYPE_BF16:
+            {
+                ggml_compute_forward_tri_bf16(params, dst);
             } break;
         default:
             {
