@@ -4784,6 +4784,15 @@ struct test_cumsum : public test_case {
             std::array<int64_t, 4> ne = {10, 5, 4, 3})
         : type(type), ne(ne) {}
 
+
+    double max_nmse_err() override {
+        // Lower precision types have expected precision errors in lower bits
+        if (type == GGML_TYPE_BF16 || type == GGML_TYPE_F16) {
+            return 1e-5;
+        }
+        return 1e-7;
+    }
+
     ggml_tensor * build_graph(ggml_context * ctx) override {
         ggml_tensor * a = ggml_new_tensor(ctx, type, 4, ne.data());
         ggml_set_param(a);
