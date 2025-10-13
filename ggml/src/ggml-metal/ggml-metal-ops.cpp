@@ -310,6 +310,10 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
             {
                 n_fuse = ggml_metal_op_cumsum(ctx, idx);
             } break;
+        case GGML_OP_TRI:
+            {
+                n_fuse = ggml_metal_op_tri(ctx, idx);
+            } break;
         case GGML_OP_SOFT_MAX:
             {
                 n_fuse = ggml_metal_op_soft_max(ctx, idx);
@@ -959,6 +963,13 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
 
     ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne02, ne03, nth, 1, 1);
 
+    return 1;
+}
+
+int ggml_metal_op_tri(ggml_metal_op_t ctx, int idx) {
+    ggml_tensor * op = ctx->node(idx);
+    //DEBUG
+    GGML_ASSERT(false);
     return 1;
 }
 
