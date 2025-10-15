@@ -330,15 +330,16 @@ ggml_metal_pipeline_t ggml_metal_library_get_pipeline_cumsum(ggml_metal_library_
 
     snprintf(name, 256, "%s", base);
 
+    // reuse existing precompiled pipeline, but allow memory size setting
     ggml_metal_pipeline_t res = ggml_metal_library_get_pipeline(lib, name);
-    if (res) {
-        return res;
+    if (!res) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
     }
 
-    res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
-
-    // shared memory buffer for a single simd group size
-    ggml_metal_pipeline_set_smem(res, 32*sizeof(float));
+    // one shared memory element for each simd group in the threadgroup
+    GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    const int nsg = (ne00 + 31)/32;
+    ggml_metal_pipeline_set_smem(res, nsg*sizeof(float));
 
     return res;
 }

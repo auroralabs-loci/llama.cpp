@@ -1801,7 +1801,7 @@ kernel void kernel_cumsum(
         constant ggml_metal_kargs_cumsum & args,
         device const char * src0,
         device const char * dst,
-        threadgroup  float * shmem_f32 [[threadgroup(0)]],
+        threadgroup float * shmem_f32 [[threadgroup(0)]],
         uint3   tgpig[[threadgroup_position_in_grid]],
         ushort3 tpitg[[thread_position_in_threadgroup]],
         ushort  sgitg[[simdgroup_index_in_threadgroup]],
@@ -1822,40 +1822,31 @@ kernel void kernel_cumsum(
     // threadgroup, so this will loop once for each index that this thread is
     // responsible for
     for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
-        //DEBUG -- This is the _very_ neive version
-        dst_row[i0] = src_row[i0];
-        for (int64_t j = 0; j < i0; ++j) {
-            dst_row[i0] = static_cast<T>(static_cast<float>(src_row[j]) + static_cast<float>(dst_row[i0]));
+
+        // Each thread does simd_prefix_inclusive_sum => every element of row
+        // now holds cumsum of the simd group
+        float sumf = static_cast<float>(src_row[i0]);
+        sumf = simd_prefix_inclusive_sum(sumf);
+        dst_row[i0] = static_cast<T>(sumf);
+
+        // If this is the last element of the simd group, store its value in
+        // shared memory
+        if (tiisg == N_SIMDWIDTH - 1 || i0 == args.ne00 - 1) {
+            const ushort shmem_idx = i0 / N_SIMDWIDTH;
+            shmem_f32[shmem_idx] = sumf;
         }
     }
 
-    // if (sgitg == 0) {
-    //     shmem_f32[tiisg] = 0.0f;
-    // }
+    // Ensure all simd groups sync here before proceeding
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
-
-    // float sumf = 0;
-
-    // for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
-    //     sumf += src_row[i0];
-    // }
-
-    // sumf = simd_sum(sumf);
-
-    // threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // if (tiisg == 0) {
-    //     shmem_f32[sgitg] = sumf;
-    // }
-
-    // threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // sumf = shmem_f32[tiisg];
-    // sumf = simd_sum(sumf);
-
-    // if (tpitg.x == 0) {
-    //     dst_row[0] = norm ? sumf / args.ne00 : sumf;
-    // }
+    // Each element then adds the final value of all preceding simd groups
+    for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
+        const ushort shmem_idx = i0 / N_SIMDWIDTH;
+        for (ushort j = 0; j < shmem_idx; ++j) {
+            dst_row[i0] += static_cast<T>(shmem_f32[j]);
+        }
+    }
 }
 
 typedef decltype(kernel_cumsum<float>) kernel_cumsum_t;
