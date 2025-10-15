@@ -656,10 +656,9 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
         case GGML_OP_COS:
         case GGML_OP_LOG:
             return ggml_is_contiguous(op->src[0]) && op->src[0]->type == GGML_TYPE_F32;
-        case GGML_OP_CUMSUM:
         case GGML_OP_TRI:
-            //DEBUG -- Refine this!
-            return true;
+            return ggml_is_contiguous_rows(op->src[0]);
+        case GGML_OP_CUMSUM:
         case GGML_OP_SUM:
         case GGML_OP_SUM_ROWS:
         case GGML_OP_MEAN:
