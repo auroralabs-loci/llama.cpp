@@ -6951,6 +6951,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(int verbose 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {2025, 2025, 1, 1}));
 
     for (bool v : {false, true}) {
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {512, 512, 1, 1}, 0, 1, 0, 1, 0, 0, 0, 0, v));
@@ -7123,6 +7124,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {2025, 2025, 1, 1}));
 
     for (int bs : {1, 2, 3, 4, 5, 8, 512}) {
         for (ggml_type type_a : all_types) {
