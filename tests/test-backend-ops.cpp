@@ -1382,11 +1382,12 @@ struct test_case {
             double err = nmse(f1.data(), f2.data(), f1.size());
             if (err > ud->max_err) {
                 printf("[%s] NMSE = %.9f > %.9f ", ggml_op_desc(t1), err, ud->max_err);
-                //for (int i = 0; i < (int) f1.size(); i++) {
-                //    printf("%5d %9.6f %9.6f, diff = %9.6f\n", i, f1[i], f2[i], f1[i] - f2[i]);
-                //}
-                //printf("\n");
-                //exit(1);
+                if (ud->verbose) {
+                    for (int i = 0; i < (int) f1.size(); i++) {
+                    printf("%5d %9.6f %9.6f, diff = %9.6f\n", i, f1[i], f2[i], f1[i] - f2[i]);
+                    }
+                    printf("\n");
+                }
                 ud->ok = false;
             }
             return true;
@@ -6938,8 +6939,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(int verbose 
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
-    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 4, 2, 1 }));
-    // test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2025, 5, 6, 3 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2025, 5, 6, 3 }));
 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));
@@ -7111,7 +7111,7 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
-    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 1024, 15, 26, 12 }));
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2025, 5, 6, 3 }));
 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));
