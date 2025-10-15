@@ -2267,9 +2267,9 @@ static void ggml_compute_forward_gelu(
 static void ggml_compute_forward_tri_f32(const ggml_compute_params * params, ggml_tensor * dst) {
     const ggml_tensor * src0 = dst->src[0];
 
-    ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
-    float c = *((float *) &(dst->op_params[1]));
-    bool keep_org_val = isnan(c);
+    const ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
+    const float c = ggml_get_op_params_f32(dst, 1);
+    const bool keep_org_val = isnan(c);
 
     // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));
@@ -2294,9 +2294,9 @@ static void ggml_compute_forward_tri_f32(const ggml_compute_params * params, ggm
 static void ggml_compute_forward_tri_f16(const ggml_compute_params * params, ggml_tensor * dst) {
     const ggml_tensor * src0 = dst->src[0];
 
-    ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
-    const float c = *((float *) &(dst->op_params[1]));
-    bool keep_org_val = isnan(c);
+    const ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
+    const float c = ggml_get_op_params_f32(dst, 1);
+    const bool keep_org_val = isnan(c);
 
     // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));
@@ -2321,9 +2321,9 @@ static void ggml_compute_forward_tri_f16(const ggml_compute_params * params, ggm
 static void ggml_compute_forward_tri_bf16(const ggml_compute_params * params, ggml_tensor * dst) {
     const ggml_tensor * src0 = dst->src[0];
 
-    ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
-    float c = *((float *) &(dst->op_params[1]));
-    bool keep_org_val = isnan(c);
+    const ggml_tri_type ttype = (ggml_tri_type) dst->op_params[0];
+    const float c = ggml_get_op_params_f32(dst, 1);
+    const bool keep_org_val = isnan(c);
 
     // TODO: Is ggml_is_contiguous_rows safe and sufficient?
     GGML_ASSERT(ggml_is_contiguous(src0));

@@ -1459,6 +1459,7 @@ inline static bool _ggml_vec_tri_cmp(const int i, const int r, const enum ggml_t
         case GGML_TRI_TYPE_LOWER_DIAG: return i <= r; break;
         case GGML_TRI_TYPE_UPPER:      return i > r; break;
         case GGML_TRI_TYPE_UPPER_DIAG: return i >= r; break;
+        default:                       GGML_ABORT("Invalid tri type");
     }
 }
 
