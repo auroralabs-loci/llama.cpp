@@ -441,28 +441,28 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char *
     // Convert UTF-8 to UTF-16 for Windows
     int wlen = MultiByteToWideChar(CP_UTF8, 0, fname, -1, NULL, 0);
     if (!wlen) {
-        fprintf(stderr, "Unable to convert filename to UTF-16: %s\n", fname);
+        LOG_ERR("Unable to convert filename to UTF-16: %s\n", fname);
         return nullptr;
     }
 
     std::vector<wchar_t> wfname(wlen);
     wlen = MultiByteToWideChar(CP_UTF8, 0, fname, -1, wfname.data(), wlen);
     if (!wlen) {
-        fprintf(stderr, "Unable to convert filename to UTF-16: %s\n", fname);
+        LOG_ERR("Unable to convert filename to UTF-16: %s\n", fname);
         return nullptr;
     }
 
     // Open file with UTF-16 filename
     FILE * f = _wfopen(wfname.data(), L"rb");
     if (!f) {
-        fprintf(stderr, "Unable to open file %s: %s\n", fname, strerror(errno));
+        LOG_ERR("Unable to open file %s: %s\n", fname, strerror(errno));
         return nullptr;
     }
 #else
     // On non-Windows platforms, use fopen directly
     FILE * f = fopen(fname, "rb");
     if (!f) {
-        fprintf(stderr, "Unable to open file %s: %s\n", fname, strerror(errno));
+        LOG_ERR("Unable to open file %s: %s\n", fname, strerror(errno));
         return nullptr;
     }
 #endif
@@ -478,7 +478,7 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char *
     fclose(f);
 
     if (n_read != (size_t)file_size) {
-        fprintf(stderr, "Failed to read entire file %s\n", fname);
+        LOG_ERR("Failed to read entire file %s\n", fname);
         return nullptr;
     }
 
