@@ -1398,6 +1398,22 @@ kernel void kernel_silu_f32_4(
     dst[tpig] = x / (1.0f + exp(-x));
 }
 
+kernel void kernel_softplus_f32(
+        device const float * src0,
+        device       float * dst,
+        uint tpig[[thread_position_in_grid]]) {
+    device const float & x = src0[tpig];
+    dst[tpig] = (x > 20.0f) ? x : log(1.0f + exp(x));
+}
+
+kernel void kernel_softplus_f32_4(
+        device const float4 * src0,
+        device       float4 * dst,
+        uint tpig[[thread_position_in_grid]]) {
+    device const float4 & x = src0[tpig];
+    dst[tpig] = select(log(1.0f + exp(x)), x, x > 20.0f);
+}
+
 kernel void kernel_elu_f32(
         device const float * src0,
         device       float * dst,
