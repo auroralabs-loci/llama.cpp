@@ -579,6 +579,7 @@ extern "C" {
         GGML_UNARY_OP_EXP,
         GGML_UNARY_OP_GELU_ERF,
         GGML_UNARY_OP_XIELU,
+        GGML_UNARY_OP_SOFTPLUS,
 
         GGML_UNARY_OP_COUNT,
     };
@@ -1161,6 +1162,12 @@ extern "C" {
             struct ggml_tensor  * a);
 
     GGML_API struct ggml_tensor * ggml_exp_inplace(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a);
+
+    // softplus(x) = log(1 + exp(beta * x)) / beta, for x * beta <= threshold
+    //             = x, otherwise
+    GGML_API struct ggml_tensor * ggml_softplus(
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
 
