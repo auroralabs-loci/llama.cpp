@@ -31,6 +31,7 @@
 #include <cstring>
 #include <ctime>
 #include <future>
+#include <limits>
 #include <memory>
 #include <random>
 #include <regex>
@@ -240,7 +241,8 @@ static std::string ggml_ne_string(const ggml_tensor * t) {
     return str;
 }
 
-static void ggml_print_tensor(ggml_tensor * t, int64_t n = 3) {
+static void ggml_print_tensor(ggml_tensor * t, int64_t verbose = 0) {
+    int n = verbose >= 2 ? std::numeric_limits<int>::max() : 3;
     GGML_ASSERT(t != nullptr);
     GGML_ASSERT(n > 0);
 
@@ -1137,6 +1139,9 @@ struct test_case {
     virtual void initialize_tensors(ggml_context * ctx) {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != nullptr; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -1349,8 +1354,8 @@ struct test_case {
             }
 
             if (ud->verbose) {
-                ggml_print_tensor(t1, ud->verbose >= 2 ? 1e10 : 3);
-                ggml_print_tensor(t2, ud->verbose >= 2 ? 1e10 : 3);
+                ggml_print_tensor(t1, ud->verbose);
+                ggml_print_tensor(t2, ud->verbose);
             }
 
             std::vector<float> f1 = tensor_to_float(t1);
@@ -1930,6 +1935,9 @@ struct test_unary : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // test extended range of values to check for NaNs in GELU
             init_tensor_uniform(t, -150.f, 150.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -1995,6 +2003,9 @@ struct test_glu : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // test extended range of values to check for NaNs in GELU
             init_tensor_uniform(t, -150.f, 150.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -2053,6 +2064,9 @@ struct test_glu_split : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // test extended range of values to check for NaNs in GELU
             init_tensor_uniform(t, -150.f, 150.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -2113,6 +2127,9 @@ struct test_swiglu_oai : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // test extended range of values to check for NaNs in GELU
             init_tensor_uniform(t, -150.f, 150.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -2170,6 +2187,9 @@ struct test_get_rows : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -2222,6 +2242,9 @@ struct test_get_rows_back : public test_case {
                 ggml_backend_tensor_set(t, data.data(), 0, r * b * sizeof(int));
             } else {
                 init_tensor_uniform(t);
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -2304,6 +2327,9 @@ struct test_set_rows : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -2369,6 +2395,9 @@ struct test_argmax : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -2429,6 +2458,9 @@ struct test_count_equal : public test_case {
                 }
             } else {
                 init_tensor_uniform(t);
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -2684,6 +2716,9 @@ struct test_cpy : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // test extended range of values to check if casting between f32 and i32 is consistent
             init_tensor_uniform(t, -150.f, 150.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -2782,6 +2817,9 @@ struct test_bin_bcast : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -2855,6 +2893,9 @@ struct test_add_id : public test_case {
                 }
             } else {
                 init_tensor_uniform(t);
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -3116,6 +3157,9 @@ struct test_rms_norm : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -10.f, 10.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3159,6 +3203,9 @@ struct test_rms_norm_back : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -10.f, 10.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 };
@@ -3215,6 +3262,9 @@ struct test_rms_norm_mul_add : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -10.f, 10.f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3304,6 +3354,9 @@ struct test_ssm_scan : public test_case {
                 }
             } else {
                 init_tensor_uniform(t);
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -3598,6 +3651,9 @@ struct test_mul_mat_id : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3712,6 +3768,9 @@ struct test_sqrt : public test_case {
         // fill with positive values
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, 50.0f, 100.0f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3752,6 +3811,9 @@ struct test_log : public test_case {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             // log(1) == 0, cluster values there to keep the sum low for better precision in the backward pass:
             init_tensor_uniform(t, 0.9f, 1.1f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3787,6 +3849,9 @@ struct test_sin : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -6.5f, 6.5f); // Covers interval [-2*pi, 2*pi].
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -3830,6 +3895,9 @@ struct test_cos : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -6.5f, 6.5f); // Covers interval [-2*pi, 2*pi].
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -4131,6 +4199,9 @@ struct test_rope : public test_case {
                 } else {
                     init_tensor_uniform(t);
                 }
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -4658,6 +4729,9 @@ struct test_argsort : public test_case {
                 }
             } else {
                 GGML_ABORT("fatal error");
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
@@ -5356,6 +5430,9 @@ struct test_flash_attn_ext : public test_case {
             } else {
                 init_tensor_uniform(t);
             }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -5400,6 +5477,9 @@ struct test_cross_entropy_loss : public test_case {
         // For larger abs. diffs between logits softmax is more linear, therefore more precise num. gradients.
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, -100.0f, 100.0f);
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -5485,6 +5565,9 @@ struct test_opt_step_adamw : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, 0.0f, 1.0f); // grad_v and adamw_params need non-negative values.
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -5524,6 +5607,9 @@ struct test_opt_step_sgd : public test_case {
     void initialize_tensors(ggml_context * ctx) override {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
             init_tensor_uniform(t, 0.0f, 1.0f);  // sgd_params need non-negative values.
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
+            }
         }
     }
 
@@ -5665,6 +5751,9 @@ public:
                 ggml_backend_tensor_set(t, data.data(), 0, hp.n_tokens * sizeof(int));
             } else {
                 init_tensor_uniform(t);
+            }
+            if (verbose) {
+                ggml_print_tensor(t, verbose);
             }
         }
     }
