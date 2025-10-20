@@ -11852,6 +11852,95 @@ struct llm_graph_context_mamba : public llm_graph_context {
             auto get_ssm_rows = [&](ggml_context * ctx, ggml_tensor * states, ggml_tensor * ids) {
                 ggml_tensor * ssm = ggml_reshape_4d(ctx, states, d_state, head_dim, n_head, mctx_cur->get_size());
 
+                if (n_seq_tokens == 1) {
+                    //DEBUG
+                    LLAMA_LOG_DEBUG("build_mamba2_layer(layer %d): single-token update\n", il);
+                    // If single-token, use ssm_scan op
+                    return ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids);
+                } else {
+                    //DEBUG
+                    LLAMA_LOG_DEBUG("build_mamba2_layer(layer %d): multi-token chunk scan\n", il);
+
+                    // otherwise, use the SSD formulation
+
+                    // TODO: make this configurable
+                    const uint32_t chunk_size = 256;
+
+                    // step 1: compute dt softplus
+                    // NOTE: In other implementations, the bias is added after
+                    //  the softplus. This shouldn't be a problem, but it's a
+                    //  difference.
+                    ggml_tensor * dt_softplus = ggml_softplus(ctx, dt); // {n_head, n_seq_tokens, n_seqs}
+
+                    // step 2: compute dtA and dtX
+                    ggml_tensor * dtA = ggml_mul(ctx, dt, ggml_reshape_1d(ctx, A, A->ne[1])); // {n_head, n_seq_tokens, n_seqs}
+                    ggml_tensor * dtX = ggml_mul(ctx, x, ggml_reshape_4d(ctx, dt, 1, dt->ne[0], dt->ne[1], dt->ne[2])); // {head_dim, n_head, n_seq_tokens, n_seqs}
+
+                    // loop over all chunks
+                    uint32_t repeats = n_head / n_group;
+                    for (auto chunk_i = 0; chunk_i < n_seq_tokens; chunk_i += chunk_size) {
+
+                        // chunk views
+                        const auto chunk_size_i = std::min(chunk_size, uint32_t(n_seq_tokens - chunk_i * chunk_size));
+                        // slice dtA on dim 1
+                        ggml_tensor * dtA_chunk = ggml_view_3d(ctx, dtA,
+                            dtA->ne[0], chunk_size_i, dtA->ne[2],
+                            dtA->nb[1], dtA->nb[2],
+                            chunk_i * dtA->nb[1]);
+                        // slice dtX on dim 2
+                        ggml_tensor * dtX_chunk = ggml_view_4d(ctx, dtX,
+                            dtX->ne[0], dtX->ne[1], chunk_size_i, dtX->ne[3],
+                            dtX->nb[1], dtX->nb[2], dtX->nb[3],
+                            chunk_i * dtX->nb[2]);
+                        // slice B on dim 2
+                        ggml_tensor * B_chunk = ggml_view_4d(ctx, B,
+                            B->ne[0], B->ne[1], chunk_size_i, B->ne[3],
+                            B->nb[1], B->nb[2], B->nb[3],
+                            chunk_i * B->nb[2]);
+                        // slice C on dim 2
+                        ggml_tensor * C_chunk = ggml_view_4d(ctx, C,
+                            C->ne[0], C->ne[1], chunk_size_i, C->ne[3],
+                            C->nb[1], C->nb[2], C->nb[3],
+                            chunk_i * C->nb[2]);
+
+                        // step 3: compute CB
+                        ggml_tensor * C_perm = ggml_permute(ctx, C_chunk, 0, 2, 1, 3); // {d_state, n_seq_tokens, n_group, n_seqs}
+                        ggml_tensor * B_perm = ggml_permute(ctx, B_chunk, 0, 2, 1, 3); // {d_state, n_seq_tokens, n_group, n_seqs}
+                        ggml_tensor * CB = ggml_mul_mat(ctx, C_perm, B_perm); // {n_seq_tokens, n_seq_tokens, n_group, n_seqs}
+                        CB = ggml_repeat_4d(ctx, CB, CB->ne[0], CB->ne[1], CB->ne[2] * repeats, CB->ne[3]); // {n_seq_tokens, n_seq_tokens, n_head (repeats * n_group), n_seqs}
+
+                        // step 4: compute decay
+                        ggml_tensor * dtA_tmp0 = ggml_permute(ctx, dtA_chunk, 2, 1, 3, 0); // {1, n_seq_tokens n_head, n_seqs}
+                        ggml_tensor * dtA_tmp1 = ggml_repeat_4d(ctx, dtA_tmp0,
+                            dtA_tmp0->ne[0] * chunk_size_i, dtA_tmp0->ne[1], dtA_tmp0->ne[2], dtA_tmp0->ne[3]); // {n_seq_tokens, n_seq_tokens n_head, n_seqs}
+                        ggml_tensor * dtA_tmp2 = ggml_tri_keep(ctx, dtA_tmp1, GGML_TRI_TYPE_LOWER); // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
+                        ggml_tensor * dtA_tmp3 = ggml_permute(ctx, dtA_tmp2, 1, 0, 2, 3); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * segsum = ggml_cumsum(ctx, dtA_tmp3); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * decay = ggml_exp(ctx, segsum); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        decay = ggml_permute(ctx, segsum, 1, 0, 2, 3);  // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
+
+                        // step 5: compute surrogate_attention_matrix
+
+                        // step 6: compute y
+
+                        // step 7: compute dtxdecay
+
+                        // step 8: compute next_state
+
+                        // update previous state if present
+                        if (true) {
+                            // step 9: compute exp_dtA_cumsum
+
+                            // step 10: compute y_prev
+
+                            // step 11: update y from y_prev
+                        }
+                    }
+
+                    //DEBUG
+                    return ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids);
+                }
+
                 // TODO: use semistructured matrices to implement state-space duality
                 // => {d_inner, n_seq_tokens, n_seqs} and {d_state, d_inner, n_seqs}
                 return ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids);
