@@ -11910,22 +11910,46 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         CB = ggml_repeat_4d(ctx, CB, CB->ne[0], CB->ne[1], CB->ne[2] * repeats, CB->ne[3]); // {n_seq_tokens, n_seq_tokens, n_head (repeats * n_group), n_seqs}
 
                         // step 4: compute decay
-                        ggml_tensor * dtA_tmp0 = ggml_permute(ctx, dtA_chunk, 2, 1, 3, 0); // {1, n_seq_tokens n_head, n_seqs}
+                        ggml_tensor * dtA_tmp0 = ggml_cont(ctx, ggml_permute(ctx, dtA_chunk, 2, 1, 3, 0)); // {1, n_seq_tokens n_head, n_seqs}
                         ggml_tensor * dtA_tmp1 = ggml_repeat_4d(ctx, dtA_tmp0,
                             dtA_tmp0->ne[0] * chunk_size_i, dtA_tmp0->ne[1], dtA_tmp0->ne[2], dtA_tmp0->ne[3]); // {n_seq_tokens, n_seq_tokens n_head, n_seqs}
                         ggml_tensor * dtA_tmp2 = ggml_tri_keep(ctx, dtA_tmp1, GGML_TRI_TYPE_LOWER); // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
                         ggml_tensor * dtA_tmp3 = ggml_permute(ctx, dtA_tmp2, 1, 0, 2, 3); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
-                        ggml_tensor * segsum = ggml_cumsum(ctx, dtA_tmp3); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * segsum = ggml_cumsum(ctx, ggml_cont(ctx, dtA_tmp3)); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
                         ggml_tensor * decay = ggml_exp(ctx, segsum); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
                         decay = ggml_permute(ctx, segsum, 1, 0, 2, 3);  // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
 
                         // step 5: compute surrogate_attention_matrix
+                        ggml_tensor * CBdecay = ggml_mul(ctx, CB, decay);
+                        ggml_tensor * surrogate_attention_matrix = ggml_tri_keep(ctx, CBdecay, GGML_TRI_TYPE_LOWER);
 
                         // step 6: compute y
+                        ggml_tensor * dtX_chunk_perm = ggml_cont(ctx, ggml_permute(ctx, dtX_chunk, 1, 2, 0, 3)); //FIXME!!! This could just as easily be (2, 1, 0, 3)
+                        // ggml_tensor * dtX_chunk_perm = ggml_cont(ctx, ggml_permute(ctx, dtX_chunk, 2, 1, 0, 3)); //FIXME!!! This could just as easily be (2, 1, 0, 3)
+                        ggml_tensor * y = ggml_mul_mat(ctx, surrogate_attention_matrix, dtX_chunk_perm);
 
                         // step 7: compute dtxdecay
+                        ggml_tensor * decay_last = ggml_view_4d(ctx, decay,
+                            decay->ne[0], 1, decay->ne[2], decay->ne[3],
+                            decay->nb[1], decay->nb[2], decay->nb[3],
+                            (decay->ne[1] - 1) * decay->nb[1]);
+                        decay_last = ggml_permute(ctx, decay_last, 2, 0, 1, 3);
+                        B_perm = ggml_cont(ctx, B_perm);
+                        B_perm = ggml_repeat_4d(ctx, B_perm,
+                            B_perm->ne[0], B_perm->ne[1], B_perm->ne[2] * repeats, B_perm->ne[3]);
+                        ggml_tensor * dtxdecay = ggml_mul(ctx, dtX_chunk, decay_last);
+                        dtxdecay = ggml_cont(ctx, ggml_permute(ctx, dtxdecay, 1, 2, 0, 3));
 
                         // step 8: compute next_state
+                        ggml_tensor * next_state = ggml_mul_mat(ctx, dtxdecay, ggml_cont(ctx, ggml_permute(ctx, B_perm, 1, 0, 2, 3)));
+                        next_state = ggml_permute(ctx, next_state, 1, 0, 2, 3);
+
+                        //DEBUG -- Single chunk w/out prev state
+                        ggml_tensor * out = ggml_concat(ctx,
+                            ggml_view_1d(ctx, y, ggml_nelements(y), 0),
+                            ggml_view_1d(ctx, next_state, ggml_nelements(next_state), 0),
+                            0);
+                        return out;
 
                         // update previous state if present
                         if (true) {
