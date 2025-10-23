@@ -11858,6 +11858,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
             auto get_ssm_rows = [&](ggml_context * ctx, ggml_tensor * states, ggml_tensor * ids) {
 
                 if (n_seq_tokens == 1) {
+                // if (true) {
                     //DEBUG
                     LLAMA_LOG_DEBUG("build_mamba2_layer(layer %d): single-token update\n", il);
                     // If single-token, use ssm_scan op
@@ -11961,8 +11962,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         cb(dtxdecay, "dtxdecay", il);
 
                         // step 8: compute next_state
-            /* !! */    ggml_tensor * next_state = ggml_mul_mat(ctx, dtxdecay, ggml_cont(ctx, ggml_permute(ctx, B_perm, 1, 0, 2, 3)));
-                        next_state = ggml_permute(ctx, next_state, 1, 0, 2, 3);
+            /* !! */    ggml_tensor * next_state = ggml_mul_mat(ctx, ggml_cont(ctx, ggml_permute(ctx, B_perm, 1, 0, 2, 3)), dtxdecay);
                         cb(next_state, "next_state", il);
 
                         //DEBUG -- Single chunk w/out prev state
