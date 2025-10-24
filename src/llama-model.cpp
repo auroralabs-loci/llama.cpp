@@ -11938,7 +11938,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         cb(decay, "decay", il);
 
                         // step 5: compute surrogate_attention_matrix
-            /* !! */    ggml_tensor * CBdecay = ggml_mul(ctx, CB, decay);
+                        ggml_tensor * CBdecay = ggml_mul(ctx, CB, ggml_cont(ctx, decay));
                         ggml_tensor * surrogate_attention_matrix = ggml_tri_keep(ctx, CBdecay, GGML_TRI_TYPE_LOWER_DIAG);
                         cb(surrogate_attention_matrix, "surrogate_attention_matrix", il);
 
