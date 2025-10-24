@@ -2346,14 +2346,25 @@ struct ggml_tensor * ggml_sum_rows(
 
 struct ggml_tensor * ggml_cumsum(
         struct ggml_context * ctx,
-        struct ggml_tensor  * a) {
+        struct ggml_tensor  * a,
+        int                   dim) {
+
+    GGML_ASSERT(dim >= 0 && dim < GGML_MAX_DIMS);
 
     struct ggml_tensor * result = ggml_new_tensor(ctx, a->type, GGML_MAX_DIMS, a->ne);
+
+    ggml_set_op_params_i32(result, 0, dim);
 
     result->op     = GGML_OP_CUMSUM;
     result->src[0] = a;
 
     return result;
+}
+
+struct ggml_tensor * ggml_cumsum_0(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a) {
+    return ggml_cumsum(ctx, a, 0);
 }
 
 // ggml_mean

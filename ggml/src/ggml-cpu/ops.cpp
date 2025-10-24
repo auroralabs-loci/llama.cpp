@@ -1397,6 +1397,50 @@ void ggml_compute_forward_sum(
 
 // ggml_compute_forward_cumsum
 
+// General implementation for arbitrary dimensions
+template<typename T>
+static void ggml_compute_forward_cumsum_general(
+    const ggml_compute_params * params,
+    ggml_tensor * dst,
+    int dim) {
+
+    const ggml_tensor * src0 = dst->src[0];
+
+    if (params->ith != 0) {
+        return;
+    }
+
+    GGML_ASSERT(dim >= 0 && dim < GGML_MAX_DIMS);
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    for (int64_t i3 = 0; i3 < ne03; i3++) {
+        for (int64_t i2 = 0; i2 < ne02; i2++) {
+            for (int64_t i1 = 0; i1 < ne01; i1++) {
+                for (int64_t i0 = 0; i0 < ne00; i0++) {
+                    const T * src_ptr = (const T *)((const char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01 + i0*nb00);
+                    T * dst_ptr = (T *)((char *) dst->data + i3*nb3 + i2*nb2 + i1*nb1 + i0*nb0);
+
+                    // Determine position in the cumsum dimension
+                    int64_t i_vals[4] = {i0, i1, i2, i3};
+                    int64_t i_dim = i_vals[dim];
+
+                    if (i_dim == 0) {
+                        // First element: just copy
+                        dst_ptr[0] = src_ptr[0];
+                    } else {
+                        // Accumulate: add current value to previous cumsum value
+                        const T * prev_dst_ptr = (const T *)((const char *) dst_ptr - dst->nb[dim]);
+                        dst_ptr[0] = type_conversion_table<T>::from_f32(
+                            type_conversion_table<T>::to_f32(prev_dst_ptr[0]) +
+                            type_conversion_table<T>::to_f32(src_ptr[0]));
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void ggml_compute_forward_cumsum_f32(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
@@ -1420,7 +1464,7 @@ static void ggml_compute_forward_cumsum_f32(
     for (int64_t i3 = 0; i3 < ne03; i3++) {
         for (int64_t i2 = 0; i2 < ne02; i2++) {
             for (int64_t i1 = 0; i1 < ne01; i1++) {
-                float * src_row = (float *) ((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
+                const float * src_row = (const float *) ((const char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
                 float * dst_row = (float *) ((char *) dst->data  + i1*nb1  + i2*nb2  + i3*nb3);
                 ggml_vec_cumsum_f32(ne00, dst_row, src_row);
             }
@@ -1451,7 +1495,7 @@ static void ggml_compute_forward_cumsum_f16(
     for (int64_t i3 = 0; i3 < ne03; i3++) {
         for (int64_t i2 = 0; i2 < ne02; i2++) {
             for (int64_t i1 = 0; i1 < ne01; i1++) {
-                ggml_fp16_t * src_row = (ggml_fp16_t *) ((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
+                const ggml_fp16_t * src_row = (const ggml_fp16_t *) ((const char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
                 ggml_fp16_t * dst_row = (ggml_fp16_t *) ((char *) dst->data  + i1*nb1  + i2*nb2  + i3*nb3);
                 ggml_vec_cumsum_f16(ne00, dst_row, src_row);
             }
@@ -1482,7 +1526,7 @@ static void ggml_compute_forward_cumsum_bf16(
     for (int64_t i3 = 0; i3 < ne03; i3++) {
         for (int64_t i2 = 0; i2 < ne02; i2++) {
             for (int64_t i1 = 0; i1 < ne01; i1++) {
-                ggml_bf16_t * src_row = (ggml_bf16_t *) ((char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
+                const ggml_bf16_t * src_row = (const ggml_bf16_t *) ((const char *) src0->data + i1*nb01 + i2*nb02 + i3*nb03);
                 ggml_bf16_t * dst_row = (ggml_bf16_t *) ((char *) dst->data  + i1*nb1  + i2*nb2  + i3*nb3);
                 ggml_vec_cumsum_bf16(ne00, dst_row, src_row);
             }
@@ -1496,18 +1540,33 @@ void ggml_compute_forward_cumsum(
 
     const ggml_tensor * src0 = dst->src[0];
 
+    const int dim = ggml_get_op_params_i32(dst, 0);
+    const bool use_general = dim != 0 || !ggml_is_contiguous_rows(src0);
+
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                ggml_compute_forward_cumsum_f32(params, dst);
+                if (use_general) {
+                    ggml_compute_forward_cumsum_general<float>(params, dst, dim);
+                } else {
+                    ggml_compute_forward_cumsum_f32(params, dst);
+                }
             } break;
         case GGML_TYPE_F16:
             {
-                ggml_compute_forward_cumsum_f16(params, dst);
+                if (use_general) {
+                    ggml_compute_forward_cumsum_general<ggml_fp16_t>(params, dst, dim);
+                } else {
+                    ggml_compute_forward_cumsum_f16(params, dst);
+                }
             } break;
         case GGML_TYPE_BF16:
             {
-                ggml_compute_forward_cumsum_bf16(params, dst);
+                if (use_general) {
+                    ggml_compute_forward_cumsum_general<ggml_bf16_t>(params, dst, dim);
+                } else {
+                    ggml_compute_forward_cumsum_bf16(params, dst);
+                }
             } break;
         default:
             {

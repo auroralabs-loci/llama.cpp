@@ -4861,14 +4861,18 @@ struct test_sum_rows : public test_case {
 struct test_cumsum : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne;
+    const int64_t dim;
+    const std::array<int64_t, 4> permute;
 
     std::string vars() override {
         return VARS_TO_STR2(type, ne);
     }
 
     test_cumsum(ggml_type type = GGML_TYPE_F32,
-            std::array<int64_t, 4> ne = {10, 5, 4, 3})
-        : type(type), ne(ne) {}
+            std::array<int64_t, 4> ne = {10, 5, 4, 3},
+            int64_t dim = 0,
+            std::array<int64_t, 4> permute = {-1, -1, -1, -1})
+        : type(type), ne(ne), dim(dim), permute(permute) {}
 
 
     double max_nmse_err() override {
@@ -4884,7 +4888,11 @@ struct test_cumsum : public test_case {
         ggml_set_param(a);
         ggml_set_name(a, "a");
 
-        ggml_tensor * out = ggml_cumsum(ctx, a);
+        if (permute[0] != -1) {
+            a = ggml_permute(ctx, a, permute[0], permute[1], permute[2], permute[3]);
+        }
+
+        ggml_tensor * out = ggml_cumsum(ctx, a, dim);
         ggml_set_name(out, "out");
 
         return out;
@@ -7056,6 +7064,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(int verbose 
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2025, 5, 6, 3 }));
+    // non-contiguous
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2, 4, 2, 1 }, 0, {1, 0, 2, 3}));
+    // alternate dim
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2, 4, 2, 1 }, 1));
 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));
@@ -7233,6 +7245,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F16,  { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_BF16, { 4, 2, 2, 1 }));
     test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2025, 5, 6, 3 }));
+    // non-contiguous
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2, 4, 2, 1 }, 0, {1, 0, 2, 3}));
+    // alternate dim
+    test_cases.emplace_back(new test_cumsum(GGML_TYPE_F32,  { 2, 4, 2, 1 }, 1));
 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_LOWER_DIAG));

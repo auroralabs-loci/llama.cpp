@@ -988,7 +988,14 @@ extern "C" {
             struct ggml_context * ctx,
             struct ggml_tensor  * a);
 
+    // Cumulative sum along the specified dimension
     GGML_API struct ggml_tensor * ggml_cumsum(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        int                   dim);
+
+    // Convenience function: cumulative sum along dimension 0
+    GGML_API struct ggml_tensor * ggml_cumsum_0(
         struct ggml_context * ctx,
         struct ggml_tensor  * a);
 
