@@ -19,7 +19,7 @@ static __global__ void tri_kernel(
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t nb00, const int64_t nb01, const int64_t nb02, const int64_t nb03,
     const int64_t nb0,  const int64_t nb1,  const int64_t nb2,  const int64_t nb3,
-    const float c, const ggml_tri_type ttype) {
+    const float c, const ggml_tri_type ttype, const int dim_x, const int dim_y) {
 
     const int64_t i3 = blockIdx.z;
     const int64_t i2 = blockIdx.y;
@@ -29,16 +29,23 @@ static __global__ void tri_kernel(
         return;
     }
 
-    const T * src_row = (const T *) ((const char *) src + i1*nb01 + i2*nb02 + i3*nb03);
-    T       * dst_row = (T       *) ((      char *) dst + i1*nb1  + i2*nb2  + i3*nb3);
-
     const bool keep_org_val = isnan(c);
+    const T c_val = static_cast<T>(c);
+    const T zero_val = static_cast<T>(0.f);
 
     // Each thread processes elements at stride blockDim.x
     for (int64_t i0 = threadIdx.x; i0 < ne00; i0 += blockDim.x) {
-        dst_row[i0] = tri_compare(i0, i1, ttype)
-            ? (keep_org_val ? src_row[i0] : static_cast<T>(c))
-            : static_cast<T>(0.f);
+        // Create index array matching CPU implementation
+        int64_t i_vals[4] = {i0, i1, i2, i3};
+        int64_t iX = i_vals[dim_x];
+        int64_t iY = i_vals[dim_y];
+
+        const T * src_ptr = (const T *) ((const char *) src + i0*nb00 + i1*nb01 + i2*nb02 + i3*nb03);
+        T       * dst_ptr = (T       *) ((      char *) dst + i0*nb0  + i1*nb1  + i2*nb2  + i3*nb3);
+
+        dst_ptr[0] = tri_compare(iX, iY, ttype)
+            ? (keep_org_val ? src_ptr[0] : c_val)
+            : zero_val;
     }
 }
 
@@ -48,7 +55,7 @@ static void tri_cuda(
     const int64_t ne00, const int64_t ne01, const int64_t ne02, const int64_t ne03,
     const int64_t nb00, const int64_t nb01, const int64_t nb02, const int64_t nb03,
     const int64_t nb0,  const int64_t nb1,  const int64_t nb2,  const int64_t nb3,
-    const float c, const ggml_tri_type ttype,
+    const float c, const ggml_tri_type ttype, const int dim_x, const int dim_y,
     cudaStream_t stream) {
 
     dim3 block_dims(CUDA_TRI_BLOCK_SIZE, 1, 1);
@@ -59,7 +66,7 @@ static void tri_cuda(
         ne00, ne01, ne02, ne03,
         nb00, nb01, nb02, nb03,
         nb0, nb1, nb2, nb3,
-        c, ttype
+        c, ttype, dim_x, dim_y
     );
 }
 
@@ -69,6 +76,8 @@ void ggml_cuda_op_tri(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
     const ggml_tri_type ttype = static_cast<ggml_tri_type>(ggml_get_op_params_i32(dst, 0));
     const float         c     = ggml_get_op_params_f32(dst, 1);
+    const int           dim_x = ggml_get_op_params_i32(dst, 2);
+    const int           dim_y = ggml_get_op_params_i32(dst, 3);
 
     GGML_ASSERT(src0->type == dst->type);
 
@@ -80,7 +89,7 @@ void ggml_cuda_op_tri(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
                     src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
                     src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
                     dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3],
-                    c, ttype, stream
+                    c, ttype, dim_x, dim_y, stream
                 );
             } break;
         case GGML_TYPE_F16:
@@ -90,7 +99,7 @@ void ggml_cuda_op_tri(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
                     src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
                     src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
                     dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3],
-                    c, ttype, stream
+                    c, ttype, dim_x, dim_y, stream
                 );
             } break;
         case GGML_TYPE_BF16:
@@ -100,7 +109,7 @@ void ggml_cuda_op_tri(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
                     src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3],
                     src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3],
                     dst->nb[0], dst->nb[1], dst->nb[2], dst->nb[3],
-                    c, ttype, stream
+                    c, ttype, dim_x, dim_y, stream
                 );
             } break;
         default:
