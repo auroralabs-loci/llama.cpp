@@ -4997,21 +4997,38 @@ struct ggml_tensor * ggml_timestep_embedding(
 
 // ggml_tri
 
-struct ggml_tensor * ggml_tri(
+struct ggml_tensor * ggml_tri_dims(
     struct ggml_context * ctx,
     struct ggml_tensor * a,
     float constant,
-    enum ggml_tri_type tritype) {
+    enum ggml_tri_type tritype,
+    int dim_x,
+    int dim_y) {
+
+    GGML_ASSERT(dim_x >= 0 && dim_x < GGML_MAX_DIMS);
+    GGML_ASSERT(dim_y >= 0 && dim_y < GGML_MAX_DIMS);
+    GGML_ASSERT(dim_x != dim_y);
+    GGML_ASSERT(a->ne[dim_x] == a->ne[dim_y]);
 
     struct ggml_tensor * result = ggml_dup_tensor(ctx, a);
 
     ggml_set_op_params_i32(result, 0, tritype);
     ggml_set_op_params_f32(result, 1, constant);
+    ggml_set_op_params_i32(result, 2, dim_x);
+    ggml_set_op_params_i32(result, 3, dim_y);
 
     result->op = GGML_OP_TRI;
     result->src[0] = a;
 
     return result;
+}
+
+struct ggml_tensor * ggml_tri(
+    struct ggml_context * ctx,
+    struct ggml_tensor * a,
+    float constant,
+    enum ggml_tri_type tritype) {
+    return ggml_tri_dims(ctx, a, constant, tritype, 0, 1);
 }
 
 struct ggml_tensor * ggml_tri_keep(

@@ -4897,23 +4897,35 @@ struct test_tri : public test_case {
     const std::array<int64_t, 4> ne;
     const ggml_tri_type tri_type;
     const float c;
+    const int64_t dim_x;
+    const int64_t dim_y;
+    const std::array<int64_t, 4> permute;
 
     std::string vars() override {
-        return VARS_TO_STR4(type, ne, tri_type, c);
+        return VARS_TO_STR7(type, ne, tri_type, c, dim_x, dim_y, permute);
     }
 
     test_tri(ggml_tri_type tri_type,
              ggml_type type = GGML_TYPE_F32,
              std::array<int64_t, 4> ne = {10, 10, 1, 1},
-             float c = nan(""))
-        : type(type), ne(ne), tri_type(tri_type), c(c) {}
+             float c = nan(""),
+             int64_t dim_x = 0,
+             int64_t dim_y = 1,
+             // don't permute by default
+             std::array<int64_t, 4> permute = {-1, -1, -1, -1})
+        : type(type), ne(ne), tri_type(tri_type), c(c),
+          dim_x(dim_x), dim_y(dim_y), permute(permute) {}
 
     ggml_tensor * build_graph(ggml_context * ctx) override {
         ggml_tensor * a = ggml_new_tensor(ctx, type, 4, ne.data());
         ggml_set_param(a);
         ggml_set_name(a, "a");
 
-        ggml_tensor * out = ggml_tri(ctx, a, c, tri_type);
+        if (permute[0] != -1) {
+            a = ggml_permute(ctx, a, permute[0], permute[1], permute[2], permute[3]);
+        }
+
+        ggml_tensor * out = ggml_tri_dims(ctx, a, c, tri_type, dim_x, dim_y);
         ggml_set_name(out, "out");
 
         return out;
@@ -7056,6 +7068,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval(int verbose 
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {2025, 2025, 1, 1}));
+    // non-contiguous
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {1, 8, 8, 1}, nan(""), 0, 1, {2, 0, 1, 3}));
+    // alternate dims
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {1, 8, 8, 1}, nan(""), 1, 2));
 
     for (bool v : {false, true}) {
         test_cases.emplace_back(new test_pad_ext(GGML_TYPE_F32, {512, 512, 1, 1}, 0, 1, 0, 1, 0, 0, 0, 0, v));
@@ -7229,6 +7245,10 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_perf() {
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F16,  {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_BF16, {8, 8, 4, 16}, 42.f));
     test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {2025, 2025, 1, 1}));
+    // non-contiguous
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {1, 8, 8, 1}, nan(""), 0, 1, {2, 0, 1, 3}));
+    // alternate dims
+    test_cases.emplace_back(new test_tri(GGML_TRI_TYPE_UPPER, GGML_TYPE_F32,  {1, 8, 8, 1}, nan(""), 1, 2));
 
     for (int bs : {1, 2, 3, 4, 5, 8, 512}) {
         for (ggml_type type_a : all_types) {

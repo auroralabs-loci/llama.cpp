@@ -2162,6 +2162,16 @@ extern "C" {
             int                   shift3);
 
     // Make matrix into a triangular one (upper, upper + diagonal, lower or lower + diagonal) with constant value
+    // dim_x and dim_y specify which two dimensions to compare for triangular masking. They must have equal size.
+    // Default is dim_x=0, dim_y=1 (compares indices in dim 0 vs indices in dim 1)
+    GGML_API struct ggml_tensor * ggml_tri_dims(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * a,
+            float                 constant,
+            enum ggml_tri_type    tritype,
+            int                   dim_x,
+            int                   dim_y);
+
     GGML_API struct ggml_tensor * ggml_tri(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
