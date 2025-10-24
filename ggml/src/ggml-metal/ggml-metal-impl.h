@@ -606,6 +606,8 @@ typedef struct {
     uint64_t nb3;
     float    c;
     uint32_t ttype;
+    int32_t  dim_x;
+    int32_t  dim_y;
 } ggml_metal_kargs_tri;
 
 typedef struct {

@@ -1931,17 +1931,24 @@ kernel void kernel_tri(
         return;
     }
 
-    device const T * src_row = (device const T *) ((device const char *) src0 + i1*args.nb01 + i2*args.nb02 + i3*args.nb03);
-    device       T * dst_row = (device       T *) ((device       char *) dst  + i1*args.nb1  + i2*args.nb2  + i3*args.nb3);
+    const bool keep_org_val = isnan(args.c);
+    const T c_val = static_cast<T>(args.c);
+    const T zero_val = static_cast<T>(0.f);
 
     // Each thread is a single element of the row if ne00 < max threads per
     // threadgroup, so this will loop once for each index that this thread is
     // responsible for
-    const bool keep_org_val = isnan(args.c);
     for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
-        dst_row[i0] = _ggml_vec_tri_cmp(i0, i1, args.ttype)
-            ? (keep_org_val ? src_row[i0] : static_cast<T>(args.c))
-            : static_cast<T>(0.f);
+        int64_t i_vals[4] = {i0, i1, i2, i3};
+        int64_t iX = i_vals[args.dim_x];
+        int64_t iY = i_vals[args.dim_y];
+
+        device const T * src_ptr = (device const T *) ((device const char *) src0 + i0*args.nb00 + i1*args.nb01 + i2*args.nb02 + i3*args.nb03);
+        device       T * dst_ptr = (device       T *) ((device       char *) dst  + i0*args.nb0  + i1*args.nb1  + i2*args.nb2  + i3*args.nb3);
+
+        dst_ptr[0] = _ggml_vec_tri_cmp(iX, iY, args.ttype)
+            ? (keep_org_val ? src_ptr[0] : c_val)
+            : zero_val;
     }
 }
 

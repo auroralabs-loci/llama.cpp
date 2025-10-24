@@ -1028,6 +1028,8 @@ int ggml_metal_op_tri(ggml_metal_op_t ctx, int idx) {
 
     const ggml_tri_type ttype = (ggml_tri_type) op->op_params[0];
     const float         c     = *((float *) &(op->op_params[1]));
+    const int32_t       dim_x = (int32_t) op->op_params[2];
+    const int32_t       dim_y = (int32_t) op->op_params[3];
 
     ggml_metal_kargs_tri args = {
         /*.ne00  =*/ ne00,
@@ -1047,7 +1049,9 @@ int ggml_metal_op_tri(ggml_metal_op_t ctx, int idx) {
         /*.nb2   =*/ nb2,
         /*.nb3   =*/ nb3,
         /*.c     =*/ c,
-        /*.ttype =*/ static_cast<uint32_t>(ttype)
+        /*.ttype =*/ static_cast<uint32_t>(ttype),
+        /*.dim_x =*/ dim_x,
+        /*.dim_y =*/ dim_y
     };
 
     ggml_metal_pipeline_t pipeline = ggml_metal_library_get_pipeline_tri(lib, op);
