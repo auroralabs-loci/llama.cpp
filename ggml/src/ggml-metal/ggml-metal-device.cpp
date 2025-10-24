@@ -320,8 +320,6 @@ ggml_metal_pipeline_t ggml_metal_library_get_pipeline_sum_rows(ggml_metal_librar
 }
 
 ggml_metal_pipeline_t ggml_metal_library_get_pipeline_cumsum(ggml_metal_library_t lib, const ggml_tensor * op) {
-    GGML_ASSERT(op->src[0]->nb[0] == ggml_type_size(op->src[0]->type));
-
     char base[256];
     char name[256];
 
@@ -338,7 +336,7 @@ ggml_metal_pipeline_t ggml_metal_library_get_pipeline_cumsum(ggml_metal_library_
     }
 
     // one shared memory element for each simd group in the threadgroup
-    GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+    GGML_TENSOR_LOCALS(int32_t, ne0, op->src[0], ne);
     const int nsg = (ne00 + 31)/32;
     ggml_metal_pipeline_set_smem(res, nsg*sizeof(float));
 

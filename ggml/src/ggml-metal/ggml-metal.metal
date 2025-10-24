@@ -1853,32 +1853,54 @@ kernel void kernel_cumsum(
         ushort  sgitg[[simdgroup_index_in_threadgroup]],
         ushort  tiisg[[thread_index_in_simdgroup]],
         ushort3   ntg[[threads_per_threadgroup]]) {
-    const int64_t i3 = tgpig.z;
-    const int64_t i2 = tgpig.y;
-    const int64_t i1 = tgpig.x;
 
-    if (i3 >= args.ne03 || i2 >= args.ne02 || i1 >= args.ne01) {
+    // Figure out the dize and stride of the cumsum dim
+    const int64_t ne_dim = (args.dim == 0) ? args.ne00 : (args.dim == 1) ? args.ne01 : (args.dim == 2) ? args.ne02 : args.ne03;
+    const int64_t nb_dim_src = (args.dim == 0) ? args.nb00 : (args.dim == 1) ? args.nb01 : (args.dim == 2) ? args.nb02 : args.nb03;
+    const int64_t nb_dim_dst = (args.dim == 0) ? args.nb0  : (args.dim == 1) ? args.nb1  : (args.dim == 2) ? args.nb2  : args.nb3;
+
+    // Map threadgroup indices to actual tensor dimensions
+    // tgpig.x, tgpig.y, tgpig.z represent the 3 non-cumsum dimensions
+    // tpitg.x represents position in the cumsum dimension
+    int64_t grid_indices[3] = {int64_t(tgpig.x), int64_t(tgpig.y), int64_t(tgpig.z)};
+    int64_t i_vals[4];
+
+    int grid_idx = 0;
+    for (int d = 0; d < 4; ++d) {
+        if (d == args.dim) {
+            i_vals[d] = 0; // Will be set in the loop below
+        } else {
+            i_vals[d] = grid_indices[grid_idx++];
+        }
+    }
+
+    // Base index offsets. The cumsum dim will be further offset by the position
+    // in the threadgroup
+    const int64_t i0 = i_vals[0];
+    const int64_t i1 = i_vals[1];
+    const int64_t i2 = i_vals[2];
+    const int64_t i3 = i_vals[3];
+
+    if (i3 >= args.ne03 || i2 >= args.ne02 || i1 >= args.ne01 || i0 >= args.ne00) {
         return;
     }
 
-    device const T * src_row = (device const T *) ((device const char *) src0 + i1*args.nb01 + i2*args.nb02 + i3*args.nb03);
-    device       T * dst_row = (device       T *) ((device       char *) dst  + i1*args.nb1  + i2*args.nb2  + i3*args.nb3);
+    // Each thread processes elements at stride ntg.x along the cumsum dimension
+    for (int64_t i_dim = tpitg.x; i_dim < ne_dim; i_dim += ntg.x) {
+        const int64_t offset_src = i0*args.nb00 + i1*args.nb01 + i2*args.nb02 + i3*args.nb03 + i_dim*nb_dim_src;
+        const int64_t offset_dst = i0*args.nb0  + i1*args.nb1  + i2*args.nb2  + i3*args.nb3  + i_dim*nb_dim_dst;
 
-    // Each thread is a single element of the row if ne00 < max threads per
-    // threadgroup, so this will loop once for each index that this thread is
-    // responsible for
-    for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
+        device const T * src_ptr = (device const T *) ((device const char *) src0 + offset_src);
+        device       T * dst_ptr = (device       T *) ((device       char *) dst  + offset_dst);
 
-        // Each thread does simd_prefix_inclusive_sum => every element of row
-        // now holds cumsum of the simd group
-        float sumf = static_cast<float>(src_row[i0]);
+        // Each thread does simd_prefix_inclusive_sum
+        float sumf = static_cast<float>(src_ptr[0]);
         sumf = simd_prefix_inclusive_sum(sumf);
-        dst_row[i0] = static_cast<T>(sumf);
+        dst_ptr[0] = static_cast<T>(sumf);
 
-        // If this is the last element of the simd group, store its value in
-        // shared memory
-        if (tiisg == N_SIMDWIDTH - 1 || i0 == args.ne00 - 1) {
-            const ushort shmem_idx = i0 / N_SIMDWIDTH;
+        // If this is the last element of the simd group, store its value in shared memory
+        if (tiisg == N_SIMDWIDTH - 1 || i_dim == ne_dim - 1) {
+            const ushort shmem_idx = i_dim / N_SIMDWIDTH;
             shmem_f32[shmem_idx] = sumf;
         }
     }
@@ -1887,10 +1909,13 @@ kernel void kernel_cumsum(
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Each element then adds the final value of all preceding simd groups
-    for (int64_t i0 = tpitg.x; i0 < args.ne00; i0 += ntg.x) {
-        const ushort shmem_idx = i0 / N_SIMDWIDTH;
+    for (int64_t i_dim = tpitg.x; i_dim < ne_dim; i_dim += ntg.x) {
+        const int64_t offset_dst = i0*args.nb0 + i1*args.nb1 + i2*args.nb2 + i3*args.nb3 + i_dim*nb_dim_dst;
+        device T * dst_ptr = (device T *) ((device char *) dst + offset_dst);
+
+        const ushort shmem_idx = i_dim / N_SIMDWIDTH;
         for (ushort j = 0; j < shmem_idx; ++j) {
-            dst_row[i0] += static_cast<T>(shmem_f32[j]);
+            dst_ptr[0] += static_cast<T>(shmem_f32[j]);
         }
     }
 }

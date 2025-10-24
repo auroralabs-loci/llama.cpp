@@ -971,6 +971,8 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
     GGML_TENSOR_LOCALS( int32_t, ne,  op,         ne);
     GGML_TENSOR_LOCALS(uint32_t, nb,  op,         nb);
 
+    const int32_t dim = (int32_t) op->op_params[0];
+
     ggml_metal_kargs_cumsum args = {
         /*.ne00 =*/ ne00,
         /*.ne01 =*/ ne01,
@@ -988,18 +990,31 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
         /*.nb1  =*/ nb1,
         /*.nb2  =*/ nb2,
         /*.nb3  =*/ nb3,
+        /*.dim  =*/ dim
     };
 
     ggml_metal_pipeline_t pipeline = ggml_metal_library_get_pipeline_cumsum(lib, op);
 
+    // Dimension being accumulated
+    const int64_t ne_dim = op->src[0]->ne[dim];
+
+    // Grid dimensions: the GGML_MAX_DIMS-1 non-cumsum dimensions
+    int64_t grid_dims[GGML_MAX_DIMS - 1];
+    int grid_idx = 0;
+    for (int d = 0; d < GGML_MAX_DIMS; ++d) {
+        if (d != dim) {
+            grid_dims[grid_idx++] = op->src[0]->ne[d];
+        }
+    }
+
     int nth = 32; // SIMD width
 
-    while (nth < ne00 && nth < ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
+    while (nth < ne_dim && nth < ggml_metal_pipeline_max_theads_per_threadgroup(pipeline)) {
         nth *= 2;
     }
 
     nth = std::min(nth, ggml_metal_pipeline_max_theads_per_threadgroup(pipeline));
-    nth = std::min(nth, ne00);
+    nth = std::min(nth, (int)ne_dim);
 
     const size_t smem = ggml_metal_pipeline_get_smem(pipeline);
 
@@ -1010,7 +1025,7 @@ int ggml_metal_op_cumsum(ggml_metal_op_t ctx, int idx) {
 
     ggml_metal_encoder_set_threadgroup_memory_size(enc, smem, 0);
 
-    ggml_metal_encoder_dispatch_threadgroups(enc, ne01, ne02, ne03, nth, 1, 1);
+    ggml_metal_encoder_dispatch_threadgroups(enc, grid_dims[0], grid_dims[1], grid_dims[2], nth, 1, 1);
 
     return 1;
 }

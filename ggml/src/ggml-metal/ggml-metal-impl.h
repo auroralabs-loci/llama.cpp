@@ -585,6 +585,7 @@ typedef struct {
     uint64_t nb1;
     uint64_t nb2;
     uint64_t nb3;
+    int32_t  dim;
 } ggml_metal_kargs_cumsum;
 
 typedef struct {

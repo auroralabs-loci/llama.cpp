@@ -4865,7 +4865,7 @@ struct test_cumsum : public test_case {
     const std::array<int64_t, 4> permute;
 
     std::string vars() override {
-        return VARS_TO_STR2(type, ne);
+        return VARS_TO_STR4(type, ne, dim, permute);
     }
 
     test_cumsum(ggml_type type = GGML_TYPE_F32,
