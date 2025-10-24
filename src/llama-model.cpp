@@ -11926,12 +11926,11 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         cb(CB, "CB", il);
 
                         // step 4: compute decay
-                        ggml_tensor * dtA_tmp0 = ggml_cont(ctx, ggml_permute(ctx, dtA_chunk, 2, 1, 3, 0)); // {1, n_seq_tokens n_head, n_seqs}
-                        ggml_tensor * dtA_tmp1 = ggml_repeat_4d(ctx, dtA_tmp0,
-                            dtA_tmp0->ne[0] * chunk_size_i, dtA_tmp0->ne[1], dtA_tmp0->ne[2], dtA_tmp0->ne[3]); // {n_seq_tokens, n_seq_tokens n_head, n_seqs}
-                        ggml_tensor * dtA_tmp2 = ggml_tri_keep(ctx, dtA_tmp1, GGML_TRI_TYPE_LOWER); // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
-                        ggml_tensor * dtA_tmp3 = ggml_permute(ctx, dtA_tmp2, 1, 0, 2, 3); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
-            /* !! */    ggml_tensor * segsum = ggml_cumsum(ctx, ggml_cont(ctx, dtA_tmp3)); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * dtA_tmp0 = ggml_repeat_4d(ctx, dtA_chunk,
+                            dtA_chunk->ne[0], dtA_chunk->ne[1], dtA_chunk->ne[2], dtA_chunk->ne[3] * chunk_size_i);
+                        ggml_tensor * dtA_tmp1 = ggml_tri_dims(ctx, dtA_tmp0, nan(""), GGML_TRI_TYPE_LOWER, 3, 1);
+                        ggml_tensor * dtA_tmp2 = ggml_permute(ctx, dtA_tmp1, 2, 0, 3, 1); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * segsum = ggml_cumsum(ctx, ggml_cont(ctx, dtA_tmp2)); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
                         cb(segsum, "segsum", il);
             /* !! */    ggml_tensor * decay = ggml_exp(ctx, segsum); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
                         decay = ggml_permute(ctx, decay, 1, 0, 2, 3);  // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
