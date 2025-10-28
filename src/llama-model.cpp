@@ -11856,13 +11856,16 @@ struct llm_graph_context_mamba : public llm_graph_context {
             // (this is necessary in order to properly use the states before they are overwritten,
             //  while avoiding to make unnecessary copies of the states)
             auto get_ssm_rows = [&](ggml_context * ctx, ggml_tensor * states, ggml_tensor * ids) {
+                ggml_tensor * ssm = ggml_reshape_4d(ctx, states, d_state, head_dim, n_head, mctx_cur->get_size());
+
+                // Empty y that will be extended with each chunk of tokens
+                ggml_tensor * y = ggml_new_tensor_4d(ctx, x->type, x->ne[0], x->ne[1], 0, x->ne[3]);
 
                 if (n_seq_tokens == 1) {
                 // if (true) {
                     //DEBUG
                     LLAMA_LOG_DEBUG("build_mamba2_layer(layer %d): single-token update\n", il);
                     // If single-token, use ssm_scan op
-                    ggml_tensor * ssm = ggml_reshape_4d(ctx, states, d_state, head_dim, n_head, mctx_cur->get_size());
                     return ggml_ssm_scan(ctx, ssm, x, dt, A, B, C, ids);
                 } else {
                     //DEBUG
@@ -11930,10 +11933,10 @@ struct llm_graph_context_mamba : public llm_graph_context {
                             dtA_chunk->ne[0], dtA_chunk->ne[1], dtA_chunk->ne[2], dtA_chunk->ne[3] * chunk_size_i);
                         ggml_tensor * dtA_tmp1 = ggml_tri_dims(ctx, dtA_tmp0, nan(""), GGML_TRI_TYPE_LOWER, 3, 1);
                         ggml_tensor * dtA_tmp2 = ggml_permute(ctx, dtA_tmp1, 2, 0, 3, 1); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
-                        ggml_tensor * segsum = ggml_cumsum(ctx, ggml_cont(ctx, dtA_tmp2)); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
+                        ggml_tensor * segsum = ggml_cumsum(ctx, ggml_cont(ctx, dtA_tmp2), 0); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
                         cb(segsum, "segsum", il);
             /* !! */    ggml_tensor * decay = ggml_exp(ctx, segsum); // {n_seq_tokens_1, n_seq_tokens_0, n_head, n_seqs}
-                        decay = ggml_permute(ctx, decay, 1, 0, 2, 3);  // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
+                        decay = ggml_cont(ctx, ggml_permute(ctx, decay, 1, 0, 2, 3));  // {n_seq_tokens_0, n_seq_tokens_1, n_head, n_seqs}
                         cb(decay, "decay", il);
 
                         // step 5: compute surrogate_attention_matrix
@@ -11943,16 +11946,17 @@ struct llm_graph_context_mamba : public llm_graph_context {
 
                         // step 6: compute y
                         ggml_tensor * dtX_chunk_perm = ggml_cont(ctx, ggml_permute(ctx, dtX_chunk, 1, 2, 0, 3)); //FIXME!!! This could just as easily be (2, 1, 0, 3)
-            /* !! */    ggml_tensor * y = ggml_mul_mat(ctx, dtX_chunk_perm, surrogate_attention_matrix);
-                        y = ggml_cont(ctx, ggml_permute(ctx, y, 0, 2, 1, 3));
-                        cb(y, "y", il);
+            /* !! */    ggml_tensor * y_chunk = ggml_mul_mat(ctx, dtX_chunk_perm, surrogate_attention_matrix);
+                        y_chunk = ggml_cont(ctx, ggml_permute(ctx, y_chunk, 0, 2, 1, 3));
+                        cb(y_chunk, "y_chunk", il);
 
                         // step 7: compute dtxdecay
                         ggml_tensor * decay_last = ggml_view_4d(ctx, decay,
                             decay->ne[0], 1, decay->ne[2], decay->ne[3],
                             decay->nb[1], decay->nb[2], decay->nb[3],
                             (decay->ne[1] - 1) * decay->nb[1]);
-                        decay_last = ggml_permute(ctx, decay_last, 2, 0, 1, 3);
+                        decay_last = ggml_cont(ctx, ggml_permute(ctx, decay_last, 2, 0, 1, 3));
+                        cb(decay_last, "decay_last", il);
                         B_perm = ggml_cont(ctx, B_perm);
                         B_perm = ggml_repeat_4d(ctx, B_perm,
                             B_perm->ne[0], B_perm->ne[1], B_perm->ne[2] * repeats, B_perm->ne[3]);
@@ -11964,22 +11968,42 @@ struct llm_graph_context_mamba : public llm_graph_context {
             /* !! */    ggml_tensor * next_state = ggml_mul_mat(ctx, ggml_cont(ctx, ggml_permute(ctx, B_perm, 1, 0, 2, 3)), dtxdecay);
                         cb(next_state, "next_state", il);
 
-                        //DEBUG -- Single chunk w/out prev state
-                        ggml_tensor * out = ggml_concat(ctx,
-                            ggml_view_1d(ctx, y, ggml_nelements(y), 0),
-                            ggml_view_1d(ctx, next_state, ggml_nelements(next_state), 0),
-                            0);
-                        return out;
+                        // TODO: Skip y and state updates if no previous state
+                        // FIXME!!! These chunk-recursion parts are not working yet
 
-                        // // update previous state if present
-                        // if (true) {
-                        //     // step 9: compute exp_dtA_cumsum
+                        // update from previous state
+                        ggml_tensor * exp_dtA_cumsum = ggml_exp(ctx, ggml_cumsum(ctx, dtA_chunk, 1));
+                        cb(exp_dtA_cumsum, "exp_dtA_cumsum", il);
+                        ggml_tensor * exp_dtA_cumsum_last = ggml_view_4d(ctx, exp_dtA_cumsum,
+                            exp_dtA_cumsum->ne[0], 1, exp_dtA_cumsum->ne[2], exp_dtA_cumsum->ne[3],
+                            exp_dtA_cumsum->nb[1], exp_dtA_cumsum->nb[2], exp_dtA_cumsum->nb[3],
+                            (exp_dtA_cumsum->ne[1] - 1) * exp_dtA_cumsum->nb[1]);
+                        cb(exp_dtA_cumsum_last, "exp_dtA_cumsum_last", il);
+                        next_state = ggml_add(ctx, next_state, ggml_mul(ctx, ssm, ggml_cont(ctx, ggml_permute(ctx, exp_dtA_cumsum_last, 2, 0, 1, 3))));
+                        cb(next_state, "next_state_updated", il);
 
-                        //     // step 10: compute y_prev
+                        // update from previous y
+                        ggml_tensor * y_prev = ggml_mul_mat(ctx, ggml_permute(ctx, C_chunk, 0, 2, 1, 3), ssm);
+                        cb(y_prev, "y_prev", il);
+                        y_prev = ggml_mul(ctx, ggml_cont(ctx,
+                            ggml_cont(ctx, ggml_permute(ctx, y_prev, 2, 0, 1, 3))),
+                            ggml_cont(ctx, ggml_permute(ctx, exp_dtA_cumsum, 1, 2, 0, 3)));
+                        cb(y_prev, "y_prev_mul", il);
+                        y_chunk = ggml_add(ctx, y_chunk, y_prev); //FIXME! Make sure the batch dim is in the right place
+                        cb(y_chunk, "y_chunk_updated", il);
 
-                        //     // step 11: update y from y_prev
-                        // }
+                        // recurse
+                        y = ggml_concat(ctx, y, y_chunk, 2);
+                        cb(y, "y", il);
+                        ssm = next_state;
                     }
+
+                    // Concat the output y and state
+                    ggml_tensor * out = ggml_concat(ctx,
+                        ggml_view_1d(ctx, y, ggml_nelements(y), 0),
+                        ggml_view_1d(ctx, ssm, ggml_nelements(ssm), 0),
+                        0);
+                    return out;
                 }
             };
 
