@@ -7907,6 +7907,88 @@ void ggml_compute_forward_argsort(
     }
 }
 
+//------------------------------------------------------------------------------
+// SparseK Attention (CPU)
+//------------------------------------------------------------------------------
+
+static void ggml_compute_forward_sparsek_attn_f32(
+    const struct ggml_compute_params * params,
+    struct ggml_tensor * dst) {
+
+    if (params->ith != 0) return; // main thread only
+
+    const struct ggml_tensor * Q = dst->src[0];
+    const struct ggml_tensor * K = dst->src[1];
+    const struct ggml_tensor * V = dst->src[2];
+
+    GGML_ASSERT(Q && K && V);
+    GGML_ASSERT(Q->type == GGML_TYPE_F32);
+    GGML_ASSERT(K->type == GGML_TYPE_F32);
+    GGML_ASSERT(V->type == GGML_TYPE_F32);
+
+    const int32_t k_top      = ggml_get_op_params_i32(dst, 0);
+    const int32_t win_local  = ggml_get_op_params_i32(dst, 1);
+    const int32_t stride_glb = ggml_get_op_params_i32(dst, 2);
+
+    const int64_t D = Q->ne[0];   // embedding dim
+    const int64_t T = Q->ne[1];   // sequence length
+
+    const float * q = (const float *) Q->data;
+    const float * k = (const float *) K->data;
+    const float * v = (const float *) V->data;
+    float * out     = (float *) dst->data;
+
+    
+    for (int64_t i = 0; i < T; ++i) {
+        for (int64_t j = 0; j < T; ++j) {
+            float dot = 0.0f;
+            for (int64_t d = 0; d < D; ++d)
+                dot += q[i*D + d] * k[j*D + d];
+            out[i*T + j] = dot / sqrtf((float) D);
+        }
+    }
+
+    for (int64_t i = 0; i < T; ++i) {
+        float * row = &out[i*T];
+        for (int64_t j = 0; j < T; ++j)
+            if (row[j] < row[k_top]) row[j] = -INFINITY;
+    }
+
+    for (int64_t i = 0; i < T; ++i) {
+        float maxv = -INFINITY;
+        for (int64_t j = 0; j < T; ++j)
+            if (out[i*T + j] > maxv) maxv = out[i*T + j];
+        float sum = 0.0f;
+        for (int64_t j = 0; j < T; ++j) {
+            out[i*T + j] = expf(out[i*T + j] - maxv);
+            sum += out[i*T + j];
+        }
+        for (int64_t j = 0; j < T; ++j)
+            out[i*T + j] /= sum;
+    }
+
+
+    float * result = (float *) dst->data;
+    for (int64_t i = 0; i < T; ++i) {
+        for (int64_t d = 0; d < D; ++d) {
+            float sum = 0.0f;
+            for (int64_t j = 0; j < T; ++j)
+                sum += out[i*T + j] * v[j*D + d];
+            result[i*D + d] = sum;
+        }
+    }
+
+    GGML_PRINT_DEBUG("[SPARSEK CPU] k_top=%d win_local=%d stride=%d\n",
+        k_top, win_local, stride_glb);
+}
+
+void ggml_compute_forward_sparsek_attn(
+    const struct ggml_compute_params * params,
+    struct ggml_tensor * dst) {
+    ggml_compute_forward_sparsek_attn_f32(params, dst);
+}
+
+
 // ggml_compute_forward_flash_attn_ext
 
 static void ggml_compute_forward_flash_attn_ext_f16(
