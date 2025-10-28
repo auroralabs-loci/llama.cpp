@@ -1019,7 +1019,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(GGML_OP_COUNT == 90, "GGML_OP_COUNT != 90");
+static_assert(GGML_OP_COUNT == 91, "GGML_OP_COUNT != 91");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1094,7 +1094,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "timestep_embedding(timesteps, dim, max_period)",
     "argsort(x)",
     "leaky_relu(x)",
-
+    "sparsek_attn(Q, K, V, k_top, win_local, stride_global)",
     "flash_attn_ext(x)",
     "flash_attn_back(x)",
     "ssm_conv(x)",
@@ -1123,7 +1123,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(GGML_OP_COUNT == 90, "GGML_OP_COUNT != 90");
+static_assert(GGML_OP_COUNT == 91, "GGML_OP_COUNT != 91");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -5062,6 +5062,46 @@ struct ggml_tensor * ggml_top_k(
 
     return result;
 }
+
+// ggml_sparsek_attn
+struct ggml_tensor * ggml_sparsek_attn(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * Q,
+        struct ggml_tensor  * K,
+        struct ggml_tensor  * V,
+        int32_t               k_top,
+        int32_t               win_local,
+        int32_t               stride_global) {
+
+    // ביטול אזהרות (אם טרם משתמשים בפרמטרים)
+    GGML_UNUSED(k_top);
+    GGML_UNUSED(win_local);
+    GGML_UNUSED(stride_global);
+
+    // בדיקות תקינות בסיסיות
+    GGML_ASSERT(Q != NULL);
+    GGML_ASSERT(K != NULL);
+    GGML_ASSERT(V != NULL);
+    GGML_ASSERT(ggml_can_mul_mat(K, Q));
+
+    // יצירת טנזור פלט בממדים המתאימים
+    int64_t ne[GGML_MAX_DIMS] = { V->ne[0], Q->ne[2], Q->ne[1], Q->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, GGML_MAX_DIMS, ne);
+
+    // הגדרת סוג האופרטור והמקורות
+    result->op     = GGML_OP_SPARSEK_ATTN;
+    result->src[0] = Q;
+    result->src[1] = K;
+    result->src[2] = V;
+
+    // שמירת הפרמטרים המספריים במערך op_params (שיטה הנהוגה ב־ggml)
+    result->op_params[0] = k_top;
+    result->op_params[1] = win_local;
+    result->op_params[2] = stride_global;
+
+    return result;
+}
+
 
 // ggml_flash_attn_ext
 
