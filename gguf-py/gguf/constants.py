@@ -422,6 +422,7 @@ class MODEL_ARCH(IntEnum):
     APERTUS          = auto()
     MINIMAXM2        = auto()
 
+
 class VISION_PROJECTOR_TYPE(IntEnum):
     MLP       = auto()
     LDP       = auto()
