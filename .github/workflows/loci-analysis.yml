@@ -1,0 +1,75 @@
+name: LOCI Analysis
+on:
+  workflow_dispatch:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+env:
+  LOCI_PROJECT: Llama CPP
+
+jobs:
+  build-and-upload:
+    name: Build and Upload Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies (including curl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libcurl4-openssl-dev
+     
+      - name: Create build directory and configure with CMake
+        run: |
+          mkdir build
+          cd build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+            -DCMAKE_OSX_SYSROOT= \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET= \
+            -DBUILD_SHARED_LIBS=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-march=armv8-a" \
+            -DCMAKE_CXX_FLAGS="-march=armv8-a"
+
+
+      - name: Build project
+        run: |
+          cd build
+          cmake --build . --target llama -j4
+
+      - name: Upload build artifacts
+        uses: auroralabs-loci/loci-action@v1.0.1
+        env:
+          LOCI_BACKEND_URL: '${{ vars.LOCI_DEV_BACKEND_URL }}'
+          LOCI_API_KEY: '${{ secrets.LOCI_DEV_AGENTIC_API_KEY }}'
+        with:
+          mode: upload
+          binaries: |
+                build/bin/libggml.so
+                build/bin/libllama.so
+                build/bin/libggml-cpu.so
+                build/bin/libggml-base.so
+          project:  ${{ env.LOCI_PROJECT }}
+          wait-base: 'true'
