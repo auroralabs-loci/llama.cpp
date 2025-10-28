@@ -990,7 +990,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "TIMESTEP_EMBEDDING",
     "ARGSORT",
     "LEAKY_RELU",
-
+    "SPARSEK_ATTN",
     "FLASH_ATTN_EXT",
     "FLASH_ATTN_BACK",
     "SSM_CONV",
@@ -1094,7 +1094,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "timestep_embedding(timesteps, dim, max_period)",
     "argsort(x)",
     "leaky_relu(x)",
-    "sparsek_attn(Q, K, V, k_top, win_local, stride_global)",
+    "sparsek_attn(x)",
     "flash_attn_ext(x)",
     "flash_attn_back(x)",
     "ssm_conv(x)",
@@ -5073,34 +5073,40 @@ struct ggml_tensor * ggml_sparsek_attn(
         int32_t               win_local,
         int32_t               stride_global) {
 
-    // ביטול אזהרות (אם טרם משתמשים בפרמטרים)
-    GGML_UNUSED(k_top);
-    GGML_UNUSED(win_local);
-    GGML_UNUSED(stride_global);
-
-    // בדיקות תקינות בסיסיות
-    GGML_ASSERT(Q != NULL);
-    GGML_ASSERT(K != NULL);
-    GGML_ASSERT(V != NULL);
     GGML_ASSERT(ggml_can_mul_mat(K, Q));
+    GGML_ASSERT(Q->ne[3] == K->ne[3] && Q->ne[3] == V->ne[3]);
 
-    // יצירת טנזור פלט בממדים המתאימים
-    int64_t ne[GGML_MAX_DIMS] = { V->ne[0], Q->ne[2], Q->ne[1], Q->ne[3] };
-    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, GGML_MAX_DIMS, ne);
+    int64_t ne[4] = { V->ne[0], Q->ne[2], Q->ne[1], Q->ne[3] };
+    struct ggml_tensor * result = ggml_new_tensor(ctx, GGML_TYPE_F32, 4, ne);
 
-    // הגדרת סוג האופרטור והמקורות
+
+    int32_t params_i32[3] = { k_top, win_local, stride_global };
+    ggml_set_op_params(result, params_i32, sizeof(params_i32));
+
     result->op     = GGML_OP_SPARSEK_ATTN;
     result->src[0] = Q;
     result->src[1] = K;
     result->src[2] = V;
 
-    // שמירת הפרמטרים המספריים במערך op_params (שיטה הנהוגה ב־ggml)
-    result->op_params[0] = k_top;
-    result->op_params[1] = win_local;
-    result->op_params[2] = stride_global;
-
     return result;
 }
+
+
+void ggml_sparsek_attn_set_params(struct ggml_tensor * a,
+                                  int32_t k_top,
+                                  int32_t win_local,
+                                  int32_t stride_global) {
+    GGML_ASSERT(a->op == GGML_OP_SPARSEK_ATTN);
+    ggml_set_op_params_i32(a, 0, k_top);
+    ggml_set_op_params_i32(a, 1, win_local);
+    ggml_set_op_params_i32(a, 2, stride_global);
+}
+
+int32_t ggml_sparsek_attn_get_param(const struct ggml_tensor * a, int index) {
+    GGML_ASSERT(a->op == GGML_OP_SPARSEK_ATTN);
+    return ggml_get_op_params_i32(a, index);
+}
+
 
 
 // ggml_flash_attn_ext
