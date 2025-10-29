@@ -11906,7 +11906,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
                     for (auto chunk_i = 0; chunk_i < n_seq_tokens; chunk_i += chunk_size) {
 
                         // chunk views
-                        const auto chunk_size_i = std::min(chunk_size, uint32_t(n_seq_tokens - chunk_i * chunk_size));
+                        const auto chunk_size_i = std::min(chunk_size, uint32_t(n_seq_tokens - chunk_i));
                         // slice dtA on dim 1
                         ggml_tensor * dtA_chunk = ggml_view_3d(ctx, dtA,
                             dtA->ne[0], chunk_size_i, dtA->ne[2],
