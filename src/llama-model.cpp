@@ -11981,24 +11981,25 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         // TODO: Skip y and state updates if no previous state
 
                         // step 9: update from previous state
-                        ggml_tensor * exp_dtA_cumsum = ggml_exp(ctx, ggml_cumsum(ctx, dtA_chunk, 1));
+                        ggml_tensor * exp_dtA_cumsum = ggml_exp(ctx, ggml_cumsum(ctx, dtA_chunk, 1)); // {n_head, chunk_size_i, n_seqs}
                         cb(exp_dtA_cumsum, "exp_dtA_cumsum", il);
                         ggml_tensor * exp_dtA_cumsum_last = ggml_view_4d(ctx, exp_dtA_cumsum,
                             exp_dtA_cumsum->ne[0], 1, exp_dtA_cumsum->ne[2], exp_dtA_cumsum->ne[3],
                             exp_dtA_cumsum->nb[1], exp_dtA_cumsum->nb[2], exp_dtA_cumsum->nb[3],
-                            (exp_dtA_cumsum->ne[1] - 1) * exp_dtA_cumsum->nb[1]);
+                            (exp_dtA_cumsum->ne[1] - 1) * exp_dtA_cumsum->nb[1]); // {n_head, 1, n_seqs}
                         cb(exp_dtA_cumsum_last, "exp_dtA_cumsum_last", il);
-                        next_state = ggml_add(ctx, next_state, ggml_mul(ctx, ssm, ggml_cont(ctx, ggml_permute(ctx, exp_dtA_cumsum_last, 2, 0, 1, 3))));
+                        ggml_tensor * exp_dtA_cumsum_perm = ggml_permute(ctx, exp_dtA_cumsum_last, 1, 2, 3, 0);
+                        next_state = ggml_add(ctx, next_state, ggml_mul(ctx, ssm, ggml_cont(ctx, exp_dtA_cumsum_perm)));
                         cb(next_state, "next_state_updated", il);
 
                         // step 10: update from previous y
                         ggml_tensor * y_prev = ggml_mul_mat(ctx, ggml_permute(ctx, C_chunk, 0, 2, 1, 3), ssm);
                         cb(y_prev, "y_prev", il);
-                        y_prev = ggml_mul(ctx, ggml_cont(ctx,
-                            ggml_cont(ctx, ggml_permute(ctx, y_prev, 2, 0, 1, 3))),
-                            ggml_cont(ctx, ggml_permute(ctx, exp_dtA_cumsum, 1, 2, 0, 3)));
+                        y_prev = ggml_mul(ctx,
+                            ggml_cont(ctx, ggml_permute(ctx, y_prev, 2, 0, 1, 3)),
+                            ggml_cont(ctx, ggml_permute(ctx, exp_dtA_cumsum, 1, 2, 3, 0)));
                         cb(y_prev, "y_prev_mul", il);
-                        y_chunk = ggml_add(ctx, y_chunk, y_prev); //FIXME! Make sure the batch dim is in the right place
+                        y_chunk = ggml_add(ctx, y_chunk, y_prev);
                         cb(y_chunk, "y_chunk_updated", il);
 
                         // step 11: recurse
