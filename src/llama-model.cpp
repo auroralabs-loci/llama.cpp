@@ -11876,6 +11876,17 @@ struct llm_graph_context_mamba : public llm_graph_context {
                     // TODO: make this configurable
                     const uint32_t chunk_size = 256;
 
+                    // extract the state(s) for the sequences identified by ids
+                    if (ssm->ne[3] != ids->ne[0]) {
+                        ggml_tensor * ssm_perm = ggml_permute(ctx, ssm, 0, 2, 3, 1);        // put the target dim in dim 1
+                        // ggml_tensor * ids_perm = ggml_permute(ctx, ids, 1, 2, 3, 0);        // put the taget dim in dim 0
+                        ggml_tensor * ids_perm_rep = ggml_repeat_4d(ctx, ids,
+                            ids->ne[0], ssm->ne[1], ssm->ne[2], 1);                         // repeat to match expected shape
+                        ggml_tensor * ssm_ids = ggml_get_rows(ctx, ssm_perm, ids_perm_rep); // extract ids as rows
+                        ssm = ggml_cont(ctx, ggml_permute(ctx, ssm_ids, 0, 3, 1, 2));       // permute back to original shape
+                        GGML_ASSERT(ssm->ne[3] == ids->ne[0]);
+                    }
+
                     // step 1: compute dt softplus
                     // NOTE: In other implementations, the bias is added after
                     //  the softplus. This shouldn't be a problem, but it's a
@@ -11944,7 +11955,7 @@ struct llm_graph_context_mamba : public llm_graph_context {
                         cb(surrogate_attention_matrix, "surrogate_attention_matrix", il);
 
                         // step 6: compute y
-                        ggml_tensor * dtX_chunk_perm = ggml_cont(ctx, ggml_permute(ctx, dtX_chunk, 1, 2, 0, 3)); //FIXME!!! This could just as easily be (2, 1, 0, 3)
+                        ggml_tensor * dtX_chunk_perm = ggml_cont(ctx, ggml_permute(ctx, dtX_chunk, 1, 2, 0, 3));
                         ggml_tensor * y_chunk = ggml_mul_mat(ctx, dtX_chunk_perm, surrogate_attention_matrix);
                         y_chunk = ggml_cont(ctx, ggml_permute(ctx, y_chunk, 0, 2, 1, 3));
                         cb(y_chunk, "y_chunk", il);
