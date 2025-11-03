@@ -654,6 +654,11 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
         case GGML_OP_SCALE:
         case GGML_OP_CONV_TRANSPOSE_1D:
             return true;
+        case GGML_OP_CONV_TRANSPOSE_2D:
+            return ggml_is_contiguous(op->src[0]) && ggml_is_contiguous(op->src[1]) &&
+                (op->src[0]->type == GGML_TYPE_F16 || op->src[0]->type == GGML_TYPE_F32) &&
+                op->src[1]->type == GGML_TYPE_F32 &&
+                op->type == GGML_TYPE_F32;
         case GGML_OP_CLAMP:
             return op->src[0]->type == GGML_TYPE_F32;
         case GGML_OP_SQR:
@@ -707,6 +712,7 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
             if (op->src[0]->ne[0] != 32 &&
                 op->src[0]->ne[0] != 40 &&
                 op->src[0]->ne[0] != 64 &&
+                op->src[0]->ne[0] != 72 &&
                 op->src[0]->ne[0] != 80 &&
                 op->src[0]->ne[0] != 96 &&
                 op->src[0]->ne[0] != 112 &&
