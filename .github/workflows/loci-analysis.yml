@@ -43,19 +43,16 @@ jobs:
             -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
             -DCMAKE_OSX_SYSROOT= \
             -DCMAKE_OSX_DEPLOYMENT_TARGET= \
             -DBUILD_SHARED_LIBS=ON \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_SERVER=ON \
+            -DLLAMA_CURL=OFF \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_FLAGS="-march=armv8-a" \
-            -DCMAKE_CXX_FLAGS="-march=armv8-a"
+            -DCMAKE_C_FLAGS="-march=armv8-a -Wl,-Bsymbolic" \
+            -DCMAKE_CXX_FLAGS="-march=armv8-a -Wl,-Bsymbolic"
 
 
       - name: Build project
@@ -72,5 +69,17 @@ jobs:
                 build/bin/libllama.so
                 build/bin/libggml-cpu.so
                 build/bin/libggml-base.so
+                build/bin/libmtmd.so
+                build/bin/llama-bench
+                build/bin/llama-cvector-generator
+                build/bin/llama-gemma3-cli
+                build/bin/llama-gguf-split
+                build/bin/llama-llava-cli
+                build/bin/llama-minicpmv-cli
+                build/bin/llama-quantize
+                build/bin/llama-qwen2vl-cli
+                build/bin/llama-run
+                build/bin/llama-tokenize
+                build/bin/llama-tts
           project:  ${{ env.LOCI_PROJECT }}
           wait-base: 'true'
