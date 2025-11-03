@@ -49,6 +49,8 @@ jobs:
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_SERVER=ON \
+            -DLLAMA_BUILD_COMMON=ON \
+            -DLLAMA_BUILD_TOOLS=ON \
             -DLLAMA_CURL=OFF \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_FLAGS="-march=armv8-a -Wl,-Bsymbolic" \
@@ -58,7 +60,7 @@ jobs:
       - name: Build project
         run: |
           cd build
-          cmake --build . --target llama -j4
+          cmake --build . -j4
 
       - name: Upload build artifacts
         uses: auroralabs-loci/loci-action@v1.0.1
