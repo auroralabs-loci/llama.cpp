@@ -67,9 +67,13 @@ jobs:
           mode: upload
           binaries: |
                 build/bin/libggml.so
+                build/bin/libggml.so.0
                 build/bin/libllama.so
+                build/bin/libllama.so.0
                 build/bin/libggml-cpu.so
+                build/bin/libggml-cpu.so.0
                 build/bin/libggml-base.so
+                build/bin/libggml-base.so.0
                 build/bin/libmtmd.so
                 build/bin/llama-bench
                 build/bin/llama-cvector-generator
