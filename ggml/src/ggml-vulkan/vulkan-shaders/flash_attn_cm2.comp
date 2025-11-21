@@ -160,10 +160,12 @@ void main() {
 
                 coopMatLoadTensorNV(mv, data_m, m_offset, sliceTensorLayoutNV(tensorLayoutM, i * Br, Br, j * Bc, Bc));
 
-                // skip the block if the mask is entirely -inf
-                coopMatReduceNV(mvmax, mv, gl_CooperativeMatrixReduceRowAndColumnNV, maxReduceFp16);
-                if (mvmax[0] <= NEG_FLT_MAX_OVER_2) {
-                    continue;
+                if ((p.mask_n_head_log2 & SKIP_NEG_INF_BIT) != 0) {
+                    // skip the block if the mask is entirely -inf
+                    coopMatReduceNV(mvmax, mv, gl_CooperativeMatrixReduceRowAndColumnNV, maxReduceFp16);
+                    if (mvmax[0] <= NEG_FLT_MAX_OVER_2) {
+                        continue;
+                    }
                 }
             } else {
                 tensorLayoutNV<2, Clamp> tensorLayoutM = createTensorLayoutNV(2, Clamp);
@@ -176,10 +178,12 @@ void main() {
 
                 coopMatLoadTensorNV(mv, data_m, m_offset, sliceTensorLayoutNV(tensorLayoutM, i * Br, Br, j * Bc, Bc));
 
-                // skip the block if the mask is entirely -inf
-                coopMatReduceNV(mvmax, mv, gl_CooperativeMatrixReduceRowAndColumnNV, maxReduceFp16);
-                if (mvmax[0] <= NEG_FLT_MAX_OVER_2) {
-                    continue;
+                if ((p.mask_n_head_log2 & SKIP_NEG_INF_BIT) != 0) {
+                    // skip the block if the mask is entirely -inf
+                    coopMatReduceNV(mvmax, mv, gl_CooperativeMatrixReduceRowAndColumnNV, maxReduceFp16);
+                    if (mvmax[0] <= NEG_FLT_MAX_OVER_2) {
+                        continue;
+                    }
                 }
             }
         }

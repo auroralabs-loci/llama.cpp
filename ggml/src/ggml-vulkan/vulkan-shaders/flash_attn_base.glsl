@@ -57,6 +57,7 @@ layout (push_constant) uniform parameter {
 } p;
 
 #define SINK_ENABLE_BIT (1<<24)
+#define SKIP_NEG_INF_BIT (1<<17)
 #define MASK_ENABLE_BIT (1<<16)
 #define N_LOG2_MASK 0xFFFF
 
