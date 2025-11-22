@@ -6818,6 +6818,8 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
 
 // Device tuning
 static bool ggml_vk_should_use_mmvq(const vk_device& device, uint32_t m, uint32_t n, uint32_t k, ggml_type src0_type) {
+    return false; // CI fix test
+
     if (device->mmvq_mode == 1) {
         return true;
     } else if (device->mmvq_mode == -1) {
