@@ -89,13 +89,13 @@ cmake --build build --config Release
   - To suppress warnings, add the following to `if (MSVC)...` in the top-level _CMakeLists.txt_.
     ```cmake
     add_compile_options(
-	    /wd4101  # unreferenced local variable
-	    /wd4244  # conversion from 'type1' to 'type2', possible loss of data
-	    /wd4267  # conversion from 'size_t' to a smaller type, possible loss of data
-	    /wd4305  # truncation from 'type1' to 'type2'
-	    /wd4319  # zero extending 'uint32_t' to 'size_t' of greater size
-	    /wd4804  # unsafe use of type 'bool'
-	    /wd4996  # the POSIX name for this item is deprecated
+        /wd4101  # unreferenced local variable
+        /wd4244  # conversion from 'type1' to 'type2', possible loss of data
+        /wd4267  # conversion from 'size_t' to a smaller type, possible loss of data
+        /wd4305  # truncation from 'type1' to 'type2'
+        /wd4319  # zero extending 'uint32_t' to 'size_t' of greater size
+        /wd4804  # unsafe use of type 'bool'
+        /wd4996  # the POSIX name for this item is deprecated
     )
     ```
   - Build configuration - release build with build shared libs disabled.
