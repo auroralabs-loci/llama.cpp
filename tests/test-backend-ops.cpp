@@ -3395,7 +3395,7 @@ struct test_add_rms_norm : public test_case {
         // ADD operation followed by RMS_NORM
         ggml_tensor * add_result = ggml_add(ctx, a, b);
         ggml_set_name(add_result, "add_result");
-        
+
         ggml_tensor * out = ggml_rms_norm(ctx, add_result, eps);
         ggml_set_name(out, "out");
 
