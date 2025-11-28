@@ -8073,7 +8073,17 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
     vk_subbuffer mask_buf = mask ? ggml_vk_tensor_subbuffer(ctx, mask) : q_buf;
     vk_subbuffer sinks_buf = sinks ? ggml_vk_tensor_subbuffer(ctx, sinks) : q_buf;
 
-    uint32_t mask_n_head_log2 = ((sinks != nullptr) << 24) | ((mask != nullptr) << 16) | n_head_log2;
+#define SINK_ENABLE_BIT (1<<24)
+#define SKIP_NEG_INF_BIT (1<<17)
+#define MASK_ENABLE_BIT (1<<16)
+
+    const bool skip_neg_inf = ctx->device->vendor_id != VK_VENDOR_ID_INTEL;
+
+    const uint32_t mask_n_head_log2 =
+        ((sinks != nullptr) ? SINK_ENABLE_BIT  : 0) |
+        ((mask != nullptr)  ? MASK_ENABLE_BIT  : 0) |
+        (skip_neg_inf       ? SKIP_NEG_INF_BIT : 0) |
+        n_head_log2;
 
     const vk_flash_attn_push_constants pc = { N, KV,
                                               (uint32_t)ne1, (uint32_t)ne2, (uint32_t)ne3,
