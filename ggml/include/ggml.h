@@ -537,6 +537,7 @@ extern "C" {
 
         GGML_OP_FLASH_ATTN_EXT,
         GGML_OP_FLASH_ATTN_BACK,
+        GGML_OP_PAGED_ATTENTION,
         GGML_OP_SSM_CONV,
         GGML_OP_SSM_SCAN,
         GGML_OP_WIN_PART,
@@ -2311,6 +2312,22 @@ extern "C" {
     GGML_API void ggml_flash_attn_ext_add_sinks(
             struct ggml_tensor * a,
             struct ggml_tensor * sinks);
+
+    // PagedAttention (paged KV cache attention)
+    // q: [n_tokens, n_heads, head_size]
+    // k_cache: [num_blocks, block_size, n_kv_heads, head_size] (paged)
+    // v_cache: [num_blocks, block_size, n_kv_heads, head_size] (paged)
+    // block_tables: [n_seqs, max_blocks_per_seq] (int32)
+    // seq_lens: [n_seqs] (int32)
+    GGML_API struct ggml_tensor * ggml_paged_attention(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * q,
+            struct ggml_tensor  * k_cache,
+            struct ggml_tensor  * v_cache,
+            struct ggml_tensor  * block_tables,
+            struct ggml_tensor  * seq_lens,
+            int32_t               block_size,
+            float                 scale);
 
     // TODO: needs to be adapted to ggml_flash_attn_ext
     GGML_API struct ggml_tensor * ggml_flash_attn_back(

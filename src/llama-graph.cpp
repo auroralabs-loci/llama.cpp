@@ -6,6 +6,7 @@
 
 #include "llama-kv-cache.h"
 #include "llama-kv-cache-iswa.h"
+#include "llama-kv-cache-paged.h"
 #include "llama-memory-hybrid.h"
 #include "llama-memory-recurrent.h"
 
@@ -1358,7 +1359,39 @@ ggml_tensor * llm_graph_context::build_attn_mha(
 
     ggml_tensor * cur;
 
-    if (cparams.flash_attn && kq_b == nullptr) {
+    // PagedAttention path (highest priority)
+    if (cparams.use_paged_attention) {
+        // Cast to paged cache to access block tables and sequence lengths
+        const auto * paged_cache = dynamic_cast<const llama_kv_cache_paged *>(mctx);
+        GGML_ASSERT(paged_cache != nullptr && "use_paged_attention is true but cache is not paged");
+
+        // Get K and V cache blocks for this layer
+        ggml_tensor * k_blocks = paged_cache->get_k_blocks(il);
+        ggml_tensor * v_blocks = paged_cache->get_v_blocks(il);
+        GGML_ASSERT(k_blocks != nullptr && v_blocks != nullptr);
+
+        // Build block tables and sequence lengths tensors
+        ggml_tensor * block_tables = paged_cache->build_block_tables_tensor(ctx0);
+        ggml_tensor * seq_lens = paged_cache->build_seq_lens_tensor(ctx0);
+        GGML_ASSERT(block_tables != nullptr && seq_lens != nullptr);
+
+        // Call paged attention operation
+        // Note: q is already permuted to [head_size, n_tokens, n_heads, n_seqs]
+        cur = ggml_paged_attention(
+            ctx0,
+            q,
+            k_blocks,
+            v_blocks,
+            block_tables,
+            seq_lens,
+            paged_cache->get_block_size(),
+            kq_scale
+        );
+        cb(cur, LLAMA_TENSOR_NAME_PAGED_ATTN, il);
+
+        // Reshape to match expected output format: [head_size * n_heads, n_tokens * n_seqs]
+        cur = ggml_reshape_2d(ctx0, cur, cur->ne[0]*cur->ne[1], cur->ne[2]*cur->ne[3]);
+    } else if (cparams.flash_attn && kq_b == nullptr) {
         GGML_ASSERT(kq_b == nullptr && "Flash attention does not support KQ bias yet");
 
         if (v_trans) {
