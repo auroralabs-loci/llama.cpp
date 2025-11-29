@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <map>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <thread>
@@ -486,17 +488,36 @@ static void print_progress(size_t current, size_t total) {
         return;
     }
 
+    static std::mutex mutex;
+    static std::map<std::thread::id, int> lines;
+
+    std::lock_guard<std::mutex> lock(mutex);
+    std::thread::id id = std::this_thread::get_id();
+
+    if (lines.find(id) == lines.end()) {
+        lines[id] = lines.size();
+        std::cout << "\n";
+    }
+    int lines_up = lines.size() - lines[id];
+
     size_t width = 50;
     size_t pct = (100 * current) / total;
     size_t pos = (width * current) / total;
 
-    std::cout << "["
+    std::cout << "\033[s";
+
+    if (lines_up > 0) {
+        std::cout << "\033[" << lines_up << "A";
+    }
+    std::cout << "\033[2K\r["
               << std::string(pos, '=')
               << (pos < width ? ">" : "")
               << std::string(width - pos, ' ')
               << "] " << std::setw(3) << pct << "%  ("
               << current / (1024 * 1024) << " MB / "
-              << total / (1024 * 1024) << " MB)\r";
+              << total / (1024 * 1024) << " MB) "
+              << "\033[u";
+
     std::cout.flush();
 }
 
@@ -551,8 +572,6 @@ static bool common_pull_file(httplib::Client & cli,
         },
         nullptr
     );
-
-    std::cout << "\n";
 
     if (!res) {
         LOG_ERR("%s: error during download. Status: %d\n", __func__, res ? res->status : -1);
