@@ -1018,6 +1018,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
                            }
                        }).set_env("LLAMA_ARG_FLASH_ATTN"));
     add_opt(common_arg(
+        {"--pagedattention"},
+        "enable PagedAttention for KV cache (experimental, requires CUDA)",
+        [](common_params & params) {
+            params.use_paged_attention = true;
+        }
+    ));
+    add_opt(common_arg(
         {"-p", "--prompt"}, "PROMPT",
         "prompt to start generation with; for system message, use -sys",
         [](common_params & params, const std::string & value) {
