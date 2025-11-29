@@ -32,6 +32,10 @@ add_library(llama
             llama-quant.cpp
             llama-sampling.cpp
             llama-vocab.cpp
+            llama-safetensors.cpp
+            llama-hf-config.cpp
+            llama-safetensors-loader.cpp
+            llama-safetensors-types.cpp
             unicode-data.cpp
             unicode.cpp
             unicode.h
