@@ -46,6 +46,10 @@
 #undef GGML_USE_LLAMAFILE
 #endif
 
+#if defined(__ARM_FEATURE_SVE)
+#include <arm_sve.h>
+#endif
+
 #ifdef GGML_USE_LLAMAFILE
 #include "llamafile/sgemm.h"
 #endif
@@ -74,13 +78,6 @@
 
 // precomputed f32 table for f16 (256 KB) (simd-mappings.h)
 float ggml_table_f32_f16[1 << 16];
-
-#if defined(__ARM_ARCH)
-struct ggml_arm_arch_features_type {
-    int sve_cnt;
-} ggml_arm_arch_features = { 0 };
-#endif
-
 
 #if defined(_WIN32)
 
@@ -681,25 +678,6 @@ void ggml_numa_init(enum ggml_numa_strategy numa_flag) {
 bool ggml_is_numa(void) {
     return g_state.numa.n_nodes > 1;
 }
-
-#if defined(__ARM_ARCH)
-
-#if defined(__linux__) && defined(__aarch64__)
-#include <sys/auxv.h>
-#endif
-
-static void ggml_init_arm_arch_features(void) {
-#if defined(__aarch64__) && defined(__ARM_FEATURE_SVE)
-#if defined(__linux__)
-    ggml_arm_arch_features.sve_cnt = PR_SVE_VL_LEN_MASK & prctl(PR_SVE_GET_VL);
-#else
-    // TODO: add support of SVE for non-linux systems
-#error "TODO: SVE is not supported on this platform. To use SVE, sve_cnt needs to be initialized here."
-#endif
-#endif
-}
-
-#endif // __ARM_ARCH
 
 struct ggml_tensor * ggml_new_i32(struct ggml_context * ctx, int32_t value) {
     GGML_ASSERT(!ggml_get_no_alloc(ctx));
@@ -3556,7 +3534,7 @@ int ggml_cpu_has_matmul_int8(void) {
 
 int ggml_cpu_get_sve_cnt(void) {
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SVE)
-    return ggml_arm_arch_features.sve_cnt;
+    return svcntb();
 #else
     return 0;
 #endif
@@ -3619,10 +3597,6 @@ void ggml_cpu_init(void) {
             }
 #endif
         }
-
-#if defined(__ARM_ARCH)
-        ggml_init_arm_arch_features();
-#endif
 
         is_first_call = false;
     }
