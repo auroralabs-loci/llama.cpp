@@ -2,6 +2,20 @@ cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
 
 find_package(CUDAToolkit)
 
+# Remove once CCCL 3.2 has been released and bundled with CUDA Toolkit
+if (GGML_CUDA_CUB_3DOT2)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        CCCL
+        GIT_REPOSITORY https://github.com/nvidia/cccl.git
+        GIT_TAG        v3.2.0-rc0
+        GIT_SHALLOW    TRUE
+    )
+
+    FetchContent_MakeAvailable(CCCL)
+endif()
+
 if (CUDAToolkit_FOUND)
     message(STATUS "CUDA Toolkit found")
 
@@ -102,6 +116,9 @@ if (CUDAToolkit_FOUND)
             # As of 12.3.1 CUDA Toolkit for Windows does not offer a static cublas library
             target_link_libraries(ggml-cuda PRIVATE CUDA::cudart_static CUDA::cublas)
         else ()
+            if (GGML_CUDA_CUB_3DOT2)
+                target_link_libraries(ggml-cuda PRIVATE  CCCL::CCCL)
+            endif()
             if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "10.1")
                 target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static CUDA::cublasLt_static)
             else()
@@ -109,6 +126,9 @@ if (CUDAToolkit_FOUND)
             endif()
         endif()
     else()
+        if (GGML_CUDA_CUB_3DOT2)
+            target_link_libraries(ggml-cuda PRIVATE  CCCL::CCCL)
+        endif()
         target_link_libraries(ggml-cuda PRIVATE CUDA::cudart CUDA::cublas)
     endif()
 

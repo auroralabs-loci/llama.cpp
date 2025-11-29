@@ -210,7 +210,8 @@
 				</p>
 			{/if}
 		{:else if field.type === 'checkbox'}
-			{@const isDisabled = field.key === 'pdfAsImage' && !supportsVision()}
+			{@const pdfDisabled = field.key === 'pdfAsImage' && !supportsVision()}
+			{@const isDisabled = pdfDisabled}
 
 			<div class="flex items-start space-x-3">
 				<Checkbox
@@ -239,7 +240,7 @@
 						<p class="text-xs text-muted-foreground">
 							{field.help || SETTING_CONFIG_INFO[field.key]}
 						</p>
-					{:else if field.key === 'pdfAsImage' && !supportsVision()}
+					{:else if pdfDisabled}
 						<p class="text-xs text-muted-foreground">
 							PDF-to-image processing requires a vision-capable model. PDFs will be processed as
 							text.
