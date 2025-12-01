@@ -335,6 +335,7 @@ class GGUFType:
     ADAPTER = "adapter"
     IMATRIX = "imatrix"
     MMPROJ  = "mmproj" # dummy, unused for now
+    KIMI    = "kimi"
 
 
 class MODEL_ARCH(IntEnum):
@@ -444,6 +445,7 @@ class MODEL_ARCH(IntEnum):
     MINIMAXM2        = auto()
     RND1             = auto()
     PANGU_EMBED      = auto()
+    KIMI_LINEAR      = auto()  # Kimi-Linear (hybrid MLA+KDA)
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
@@ -701,6 +703,17 @@ class MODEL_TENSOR(IntEnum):
     A_MMPROJ_FC          = auto()
     A_MM_NORM_PRE        = auto()
     A_MM_NORM_MID        = auto()
+    # Kimi Linear KDA (using SSM_ prefix for consistency)
+    SSM_CONV1D_Q         = auto()
+    SSM_CONV1D_K         = auto()
+    SSM_CONV1D_V         = auto()
+    SSM_F_A              = auto()
+    SSM_F_B              = auto()
+    SSM_BETA             = auto()
+    SSM_A_LOG            = auto()
+    SSM_G_A              = auto()
+    SSM_G_B              = auto()
+    SSM_DT_B             = auto()
     # nextn/mtp
     NEXTN_EH_PROJ        = auto()
     NEXTN_EMBED_TOKENS   = auto()
@@ -817,6 +830,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.COGVLM:           "cogvlm",
     MODEL_ARCH.RND1:             "rnd1",
     MODEL_ARCH.PANGU_EMBED:      "pangu-embedded",
+    MODEL_ARCH.KIMI_LINEAR:      "kimi-linear",
 }
 
 VISION_PROJECTOR_TYPE_NAMES: dict[VISION_PROJECTOR_TYPE, str] = {
@@ -1072,6 +1086,17 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_MMPROJ_FC:               "mm.a.fc",
     MODEL_TENSOR.A_MM_NORM_PRE:             "mm.a.norm_pre",
     MODEL_TENSOR.A_MM_NORM_MID:             "mm.a.norm_mid",
+    # Kimi Linear KDA (using SSM_ prefix for consistency)
+    MODEL_TENSOR.SSM_CONV1D_Q:              "blk.{bid}.ssm_conv1d_q",
+    MODEL_TENSOR.SSM_CONV1D_K:              "blk.{bid}.ssm_conv1d_k",
+    MODEL_TENSOR.SSM_CONV1D_V:              "blk.{bid}.ssm_conv1d_v",
+    MODEL_TENSOR.SSM_F_A:                   "blk.{bid}.ssm_f_a",
+    MODEL_TENSOR.SSM_F_B:                   "blk.{bid}.ssm_f_b",
+    MODEL_TENSOR.SSM_BETA:                  "blk.{bid}.ssm_beta",
+    MODEL_TENSOR.SSM_A_LOG:                 "blk.{bid}.ssm_a",
+    MODEL_TENSOR.SSM_G_A:                   "blk.{bid}.ssm_g_a",
+    MODEL_TENSOR.SSM_G_B:                   "blk.{bid}.ssm_g_b",
+    MODEL_TENSOR.SSM_DT_B:                  "blk.{bid}.ssm_dt",
     # NextN/MTP
     MODEL_TENSOR.NEXTN_EH_PROJ:             "blk.{bid}.nextn.eh_proj",
     MODEL_TENSOR.NEXTN_EMBED_TOKENS:        "blk.{bid}.nextn.embed_tokens",
@@ -3071,6 +3096,45 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_UP,
     ],
+    MODEL_ARCH.KIMI_LINEAR: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_Q_A,
+        MODEL_TENSOR.ATTN_Q_B,
+        MODEL_TENSOR.ATTN_KV_A_MQA,
+        MODEL_TENSOR.ATTN_KV_B,
+        MODEL_TENSOR.ATTN_Q_A_NORM,
+        MODEL_TENSOR.ATTN_KV_A_NORM,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_GATE_INP,
+        MODEL_TENSOR.FFN_GATE_EXP,
+        MODEL_TENSOR.FFN_DOWN_EXP,
+        MODEL_TENSOR.FFN_UP_EXP,
+        MODEL_TENSOR.SSM_CONV1D_Q,
+        MODEL_TENSOR.SSM_CONV1D_K,
+        MODEL_TENSOR.SSM_CONV1D_V,
+        MODEL_TENSOR.SSM_F_A,
+        MODEL_TENSOR.SSM_F_B,
+        MODEL_TENSOR.SSM_BETA,
+        MODEL_TENSOR.SSM_A_LOG,
+        MODEL_TENSOR.SSM_G_A,
+        MODEL_TENSOR.SSM_G_B,
+        MODEL_TENSOR.SSM_NORM,
+        MODEL_TENSOR.SSM_DT_B,
+        MODEL_TENSOR.FFN_EXP_PROBS_B,
+        MODEL_TENSOR.FFN_GATE_SHEXP,
+        MODEL_TENSOR.FFN_DOWN_SHEXP,
+        MODEL_TENSOR.FFN_UP_SHEXP,
+    ],
     # TODO
 }
 
@@ -3374,6 +3438,10 @@ KEY_ATTENTION_MAX_ALIBI_BIAS    = Keys.Attention.MAX_ALIBI_BIAS
 KEY_ATTENTION_CLAMP_KQV         = Keys.Attention.CLAMP_KQV
 KEY_ATTENTION_LAYERNORM_EPS     = Keys.Attention.LAYERNORM_EPS
 KEY_ATTENTION_LAYERNORM_RMS_EPS = Keys.Attention.LAYERNORM_RMS_EPS
+KEY_ATTENTION_Q_LORA_RANK       = Keys.Attention.Q_LORA_RANK
+KEY_ATTENTION_KV_LORA_RANK      = Keys.Attention.KV_LORA_RANK
+KEY_ATTENTION_KEY_LENGTH_MLA    = Keys.Attention.KEY_LENGTH_MLA
+KEY_ATTENTION_VALUE_LENGTH_MLA  = Keys.Attention.VALUE_LENGTH_MLA
 
 # RoPE
 KEY_ROPE_DIMENSION_COUNT      = Keys.Rope.DIMENSION_COUNT
