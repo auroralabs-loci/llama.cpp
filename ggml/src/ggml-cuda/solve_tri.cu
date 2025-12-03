@@ -3,7 +3,6 @@
 #include "solve_tri.cuh"
 
 #define MAX_N_FAST 64
-#define MAX_K_FAST 32
 
 // ======================
 // Fast Kernel (n <= 64, k <= 32) - Warp-based parallel reduction
@@ -48,7 +47,6 @@ static __global__ void solve_tri_f32_fast(const float * __restrict__ A,
     float *             X_batch = (float *) (X + i02 * nb2 + i03 * nb3);
 
     __shared__ float sA[MAX_N_FAST * MAX_N_FAST];
-    __shared__ float sXt[MAX_N_FAST * (MAX_K_FAST + 1)];
 
     const int offset = threadIdx.x + threadIdx.y * blockDim.x;
 
@@ -60,53 +58,52 @@ static __global__ void solve_tri_f32_fast(const float * __restrict__ A,
         }
     }
 
-    const int rows_per_warp = (n + WARP_SIZE - 1) / WARP_SIZE;
-
-#pragma unroll
-    for (int i = 0; i < rows_per_warp; i++) {
-        const int i0 = lane + i * WARP_SIZE;
-        if (i0 < n) {
-            sXt[col_idx * n + i0] = B_batch[i0 * k + col_idx];
-        }
-    }
-
     __syncthreads();
 
+    float x_low  = (lane < n) ? B_batch[lane * k + col_idx] : 0.0f;
+    float x_high = (WARP_SIZE + lane < n) ? B_batch[(WARP_SIZE + lane) * k + col_idx] : 0.0f;
+
+    const int half = WARP_SIZE;
+    const int nrows_low = (n < half) ? n : half;
+
 #pragma unroll
-    for (int row = 0; row < n; ++row) {
+    for (int row = 0; row < nrows_low; ++row) {
         float sum = 0.0f;
-
-        {
-            int j = lane;
-            if (j < row) {
-                sum += sA[row * n + j] * sXt[col_idx * n + j];
-            }
+        if (lane < row) {
+            sum = fmaf(sA[row * n + lane], x_low, sum);
         }
-        if (row >= WARP_SIZE) {
-            int j = WARP_SIZE + lane;
-            if (j < row) {
-                sum += sA[row * n + j] * sXt[col_idx * n + j];
-            }
-        }
-
         sum = warp_reduce_sum(sum);
 
-        if (lane == 0) {
-            const float b_val      = sXt[col_idx * n + row];
-            const float a_diag     = sA[row * n + row];
-            // no safeguards for division by zero because that indicates corrupt
-            // data anyway
-            sXt[col_idx * n + row] = (b_val - sum) / a_diag;
+        if (lane == row) {
+            float diag = sA[row * n + row];
+            float idiv = 1.0f / diag;
+            x_low = fmaf(sum, -idiv, x_low * idiv);
         }
     }
 
-    __syncthreads();
-
 #pragma unroll
-    for (int i = 0; i < rows_per_warp; i++) {
-        const int i0 = lane + i * WARP_SIZE;
-        if (i0 < n) {
-            X_batch[i0 * k + col_idx] = sXt[col_idx * n + i0];
+    for (int row = half; row < n; ++row) {
+        float sum = fmaf(sA[row * n + lane], x_low, 0.0f);
+        int j = half + lane;
+        if (j < row) {
+            sum = fmaf(sA[row * n + j], x_high, sum);
+        }
+        sum = warp_reduce_sum(sum);
+
+        int updater = row - half;
+        if (lane == updater) {
+            float diag = sA[row * n + row];
+            float idiv = 1.0f / diag;
+            x_high = fmaf(sum, -idiv, x_high * idiv);
+        }
+    }
+
+#pragma unroll 2
+    for (int rr = 0; rr < 2; ++rr) {
+        int row = rr * WARP_SIZE + lane;
+        if (row < n) {
+            float val = (row < half) ? x_low : x_high;
+            X_batch[row * k + col_idx] = val;
         }
     }
 }
