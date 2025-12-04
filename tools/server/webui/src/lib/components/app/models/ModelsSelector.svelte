@@ -18,11 +18,8 @@
 	import { ServerModelStatus } from '$lib/enums';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
-	import {
-		MENU_MAX_WIDTH,
-		MENU_OFFSET,
-		VIEWPORT_GUTTER
-	} from '$lib/constants/floating-ui-constraints';
+	import { MENU_OFFSET, VIEWPORT_GUTTER } from '$lib/constants/floating-ui-constraints';
+	import type { ModelOption } from '$lib/types/models';
 
 	interface Props {
 		class?: string;
@@ -145,10 +142,26 @@
 		return options.some((option) => option.model === currentModel);
 	});
 
+	let searchTerm = $state('');
+	let searchInputRef = $state<HTMLInputElement | null>(null);
+
+	let filteredOptions: ModelOption[] = $derived(
+		(() => {
+			const term = searchTerm.trim().toLowerCase();
+			if (!term) return options;
+
+			return options.filter(
+				(option) =>
+					option.model.toLowerCase().includes(term) || option.name?.toLowerCase().includes(term)
+			);
+		})()
+	);
+
 	let isOpen = $state(false);
 	let showModelDialog = $state(false);
 	let container: HTMLDivElement | null = null;
 	let menuRef = $state<HTMLDivElement | null>(null);
+	let menuWidth = $state<number | null>(null);
 	let triggerButton = $state<HTMLButtonElement | null>(null);
 	let menuPosition = $state<{
 		top: number;
@@ -186,9 +199,12 @@
 		if (loading || updating) return;
 
 		isOpen = true;
+		searchTerm = '';
+		menuWidth = null;
 		await tick();
 		updateMenuPosition();
 		requestAnimationFrame(() => updateMenuPosition());
+		requestAnimationFrame(() => searchInputRef?.focus());
 
 		if (isRouter) {
 			modelsStore.fetchRouterModels().then(() => {
@@ -210,6 +226,8 @@
 
 		isOpen = false;
 		menuPosition = null;
+		menuWidth = null;
+		searchTerm = '';
 	}
 
 	function handlePointerDown(event: PointerEvent) {
@@ -234,7 +252,7 @@
 		}
 	}
 
-	function updateMenuPosition() {
+	async function updateMenuPosition() {
 		if (!isOpen || !triggerButton || !menuRef) return;
 
 		const triggerRect = triggerButton.getBoundingClientRect();
@@ -243,19 +261,18 @@
 
 		if (viewportWidth === 0 || viewportHeight === 0) return;
 
-		const scrollWidth = menuRef.scrollWidth;
 		const scrollHeight = menuRef.scrollHeight;
 
 		const availableWidth = Math.max(0, viewportWidth - VIEWPORT_GUTTER * 2);
-		const constrainedMaxWidth = Math.min(MENU_MAX_WIDTH, availableWidth || MENU_MAX_WIDTH);
-		const safeMaxWidth =
-			constrainedMaxWidth > 0 ? constrainedMaxWidth : Math.min(MENU_MAX_WIDTH, viewportWidth);
-		const desiredMinWidth = Math.min(160, safeMaxWidth || 160);
+		const safeMaxWidth = availableWidth || viewportWidth;
 
-		let width = Math.min(
-			Math.max(triggerRect.width, scrollWidth, desiredMinWidth),
-			safeMaxWidth || 320
-		);
+		if (menuWidth === null) {
+			menuRef.style.width = '';
+			menuRef.style.maxWidth = '';
+
+			const idealWidth = Math.max(triggerRect.width, Math.min(menuRef.scrollWidth, safeMaxWidth));
+			menuWidth = Math.min(idealWidth, safeMaxWidth);
+		}
 
 		const availableBelow = Math.max(
 			0,
@@ -304,23 +321,16 @@
 			metrics = aboveMetrics;
 		}
 
-		let left = triggerRect.right - width;
-		const maxLeft = viewportWidth - VIEWPORT_GUTTER - width;
-		if (maxLeft < VIEWPORT_GUTTER) {
-			left = VIEWPORT_GUTTER;
-		} else {
-			if (left > maxLeft) {
-				left = maxLeft;
-			}
-			if (left < VIEWPORT_GUTTER) {
-				left = VIEWPORT_GUTTER;
-			}
-		}
+		const availableRight = viewportWidth - VIEWPORT_GUTTER;
+		const rightAligned = Math.min(triggerRect.right, availableRight);
+		let left = rightAligned - menuWidth;
+		const maxLeft = viewportWidth - VIEWPORT_GUTTER - menuWidth;
+		left = Math.min(Math.max(left, VIEWPORT_GUTTER), Math.max(maxLeft, VIEWPORT_GUTTER));
 
 		menuPosition = {
 			top: Math.round(metrics.top),
 			left: Math.round(left),
-			width: Math.round(width),
+			width: Math.round(menuWidth),
 			placement: metrics.placement,
 			maxHeight: Math.round(metrics.maxHeight)
 		};
@@ -467,6 +477,19 @@
 					style:width={menuPosition ? `${menuPosition.width}px` : undefined}
 					data-placement={menuPosition?.placement ?? 'bottom'}
 				>
+					<div class="px-3 py-2">
+						<label class="sr-only" for="model-search">Search models</label>
+						<input
+							id="model-search"
+							class="h-9 w-full rounded-lg bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground"
+							placeholder="Search models"
+							bind:value={searchTerm}
+							bind:this={searchInputRef}
+							aria-label="Search models"
+							autocomplete="off"
+							type="search"
+						/>
+					</div>
 					<div
 						class="overflow-y-auto py-1"
 						style:max-height={menuPosition && menuPosition.maxHeight > 0
@@ -488,7 +511,10 @@
 							</button>
 							<div class="my-1 h-px bg-border"></div>
 						{/if}
-						{#each options as option (option.id)}
+						{#if filteredOptions.length === 0}
+							<p class="px-3 py-2 text-sm text-muted-foreground">No models found.</p>
+						{/if}
+						{#each filteredOptions as option (option.id)}
 							{@const status = getModelStatus(option.model)}
 							{@const isLoaded = status === ServerModelStatus.LOADED}
 							{@const isLoading = status === ServerModelStatus.LOADING}
