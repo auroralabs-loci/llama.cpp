@@ -35,9 +35,10 @@ constexpr int HTTP_POLLING_SECONDS = 1;
 // state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
 enum slot_state {
     SLOT_STATE_IDLE,
-    SLOT_STATE_STARTED, // TODO: this state is only used for setting up the initial prompt processing; maybe merge it with launch_slot_with_task in the future
+    SLOT_STATE_STARTED, // after assigning a task
     SLOT_STATE_PROCESSING_PROMPT,
     SLOT_STATE_DONE_PROMPT,
+    SLOT_STATE_WAIT_OTHER, // prompt processed, but waiting for other slots to copy the state
     SLOT_STATE_GENERATING,
 };
 
@@ -382,6 +383,16 @@ struct server_slot {
         }
 
         return res;
+    }
+
+    void copy_state_to(server_slot & other) const {
+        llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, 0, -1);
+        other.n_decoded   = n_decoded;
+        other.n_remaining = n_remaining;
+        other.i_batch     = i_batch;
+        other.n_prompt_tokens_cache     = n_prompt_tokens_cache;
+        other.n_prompt_tokens_processed = n_prompt_tokens_processed;
+        other.prompt = prompt.clone();
     }
 };
 
@@ -1778,6 +1789,12 @@ struct server_context_impl {
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
                     const auto & input_tokens = slot.task->tokens;
 
+                    if (slot.task->id_parent >= 0) {
+                        slot.state = SLOT_STATE_PROCESSING_PROMPT;
+                        // do nothing, parent slot will handle prompt processing
+                        continue;
+                    }
+
                     // TODO: maybe move branch to outside of this loop in the future
                     if (slot.state == SLOT_STATE_STARTED) {
                         slot.t_start_process_prompt = ggml_time_us();
@@ -2143,7 +2160,9 @@ struct server_context_impl {
 
                     // entire prompt has been processed
                     if (slot.prompt.n_tokens() == slot.task->n_tokens()) {
-                        slot.state = SLOT_STATE_DONE_PROMPT;
+                        slot.state = slot.task->n_children == 0
+                            ? SLOT_STATE_DONE_PROMPT // state not being reused by any other slots
+                            : SLOT_STATE_WAIT_OTHER;
 
                         GGML_ASSERT(batch.n_tokens > 0);
 
@@ -2307,7 +2326,38 @@ struct server_context_impl {
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
+            // may need to copy state to other slots
             for (auto & slot : slots) {
+                if (slot.state == SLOT_STATE_WAIT_OTHER) {
+                    GGML_ASSERT(slot.task->n_children > 0);
+
+                    size_t n_waiting = 0;
+                    std::vector<server_slot *> child_slots;
+                    for (auto & other : slots) {
+                        if (!other.is_processing()) {
+                            continue;
+                        }
+                        if (slot.task->id == other.task->id_parent) {
+                            n_waiting++;
+                            child_slots.push_back(&other);
+                        }
+                    }
+
+                    // we can only proceed if all "child" slots are having the correct tasks
+                    if (n_waiting < slot.task->n_children) {
+                        continue;
+                    }
+
+                    // copy state to the child slots
+                    for (auto & child : child_slots) {
+                        SLT_INF(*child, "copying state from slot %d to child %d\n", slot.id, child->id);
+                        slot.copy_state_to(*child);
+                        child->state = SLOT_STATE_DONE_PROMPT;
+                    }
+
+                    slot.state = SLOT_STATE_DONE_PROMPT;
+                }
+
                 // optionally send prompt processing progress
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                     if (slot.task->params.stream && slot.task->params.return_progress) {
@@ -2593,11 +2643,12 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         }
         tasks.reserve(inputs.size());
         states.reserve(inputs.size());
+        int idx = 0;
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
 
             task.id    = ctx_server.queue_tasks.get_new_id();
-            task.index = i;
+            task.index = idx++;
 
             task.tokens = std::move(inputs[i]);
             task.params = server_task::params_from_json_cmpl(
@@ -2611,6 +2662,18 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = ctx_server.model_name;
             states.push_back(task.params.oaicompat_chat_syntax);
+
+            if (task.params.n_cmpl > 1) {
+                task.n_children = task.params.n_cmpl - 1;
+                for (size_t j = 0; j < task.n_children; j++) {
+                    server_task child = task.create_child(
+                        task.id,
+                        ctx_server.queue_tasks.get_new_id(),
+                        idx++);
+                    states.push_back(child.params.oaicompat_chat_syntax);
+                    tasks.push_back(std::move(child));
+                }
+            }
 
             tasks.push_back(std::move(task));
         }
