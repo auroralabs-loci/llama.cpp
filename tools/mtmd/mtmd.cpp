@@ -111,6 +111,7 @@ mtmd_context_params mtmd_context_params_default() {
         /* warmup            */ true,
         /* image_min_tokens  */ -1,
         /* image_max_tokens  */ -1,
+        /* dsocr_mode        */ "auto",
     };
     return params;
 }
@@ -173,12 +174,33 @@ struct mtmd_context {
             throw std::runtime_error("media_marker must not be empty");
         }
 
+        enum clip_dsocr_mode dsocr_mode;
+
+        if (std::string(ctx_params.dsocr_mode) == "auto") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_AUTO;
+        } else if (std::string(ctx_params.dsocr_mode) == "tiny") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_TINY;
+        } else if (std::string(ctx_params.dsocr_mode) == "small") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_SMALL;
+        } else if (std::string(ctx_params.dsocr_mode) == "base") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_BASE;
+        } else if (std::string(ctx_params.dsocr_mode) == "large") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_LARGE;
+        } else if (std::string(ctx_params.dsocr_mode) == "gundam") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM;
+        } else if (std::string(ctx_params.dsocr_mode) == "gundam-master") {
+            dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM_MASTER;
+        } else {
+            throw std::invalid_argument("invalid value");
+        }
+
         clip_context_params ctx_clip_params {
             /* use_gpu           */ ctx_params.use_gpu,
             /* flash_attn_type   */ CLIP_FLASH_ATTN_TYPE_AUTO,
             /* image_min_tokens  */ ctx_params.image_min_tokens,
             /* image_max_tokens  */ ctx_params.image_max_tokens,
             /* warmup            */ ctx_params.warmup,
+            /* dsocr_mode        */ dsocr_mode,
         };
 
         auto res = clip_init(mmproj_fname, ctx_clip_params);
@@ -814,7 +836,8 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
 
     if (clip_is_llava(ctx_clip)
         || clip_is_minicpmv(ctx_clip)
-        || clip_is_glm(ctx_clip)) {
+        || clip_is_glm(ctx_clip)
+        || clip_is_deepseekocr(ctx_clip)) {
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
         const auto & entries = image_tokens->batch_f32.entries;
         for (size_t i = 0; i < entries.size(); i++) {
@@ -865,6 +888,10 @@ int mtmd_get_audio_bitrate(mtmd_context * ctx) {
     }
     // for now, we assume that all audio models have the same bitrate
     return 16000; // 16kHz
+}
+
+bool mtmd_is_deepseekocr(mtmd_context * ctx) {
+    return ctx->ctx_v && clip_is_deepseekocr(ctx->ctx_v);
 }
 
 //

@@ -87,6 +87,9 @@ struct mtmd_context_params {
     // limit number of image tokens, only for vision models with dynamic resolution
     int image_min_tokens; // minimum number of tokens for image input (default: read from metadata)
     int image_max_tokens; // maximum number of tokens for image input (default: read from metadata)
+
+    // DeepSeek-OCR resolution mode
+    const char * dsocr_mode; // one of: auto, tiny, small, base, large, gundam, gundam-master
 };
 
 MTMD_API const char * mtmd_default_marker(void);
@@ -116,6 +119,9 @@ MTMD_API bool mtmd_support_audio(mtmd_context * ctx);
 // get audio bitrate in Hz, for example 16000 for Whisper
 // return -1 if audio is not supported
 MTMD_API int mtmd_get_audio_bitrate(mtmd_context * ctx);
+
+// whether the current model is DeepSeek-OCR
+MTMD_API bool mtmd_is_deepseekocr(mtmd_context * ctx);
 
 // mtmd_bitmap
 //
