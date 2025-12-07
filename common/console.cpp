@@ -1,6 +1,8 @@
 #include "console.h"
 #include <vector>
 #include <iostream>
+#include <cassert>
+#include <cstddef>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -35,6 +37,20 @@
 
 namespace console {
 
+#if defined(_WIN32)
+    namespace {
+        // Use private-use unicode values to represent special keys that are not reported
+        // as characters (e.g. arrows on Windows). These values should never clash with
+        // real input and let the rest of the code handle navigation uniformly.
+        static constexpr char32_t KEY_ARROW_LEFT  = 0xE000;
+        static constexpr char32_t KEY_ARROW_RIGHT = 0xE001;
+        static constexpr char32_t KEY_ARROW_UP    = 0xE002;
+        static constexpr char32_t KEY_ARROW_DOWN  = 0xE003;
+        static constexpr char32_t KEY_HOME        = 0xE004;
+        static constexpr char32_t KEY_END         = 0xE005;
+    }
+#endif
+
     //
     // Console state
     //
@@ -42,6 +58,8 @@ namespace console {
     static bool      advanced_display = false;
     static bool      simple_io        = true;
     static display_t current_display  = reset;
+
+    static std::vector<std::string> history;
 
     static FILE*     out              = stdout;
 
@@ -176,7 +194,15 @@ namespace console {
             if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) {
                 wchar_t wc = record.Event.KeyEvent.uChar.UnicodeChar;
                 if (wc == 0) {
-                    continue;
+                    switch (record.Event.KeyEvent.wVirtualKeyCode) {
+                        case VK_LEFT:  return KEY_ARROW_LEFT;
+                        case VK_RIGHT: return KEY_ARROW_RIGHT;
+                        case VK_UP:    return KEY_ARROW_UP;
+                        case VK_DOWN:  return KEY_ARROW_DOWN;
+                        case VK_HOME:  return KEY_HOME;
+                        case VK_END:   return KEY_END;
+                        default:       continue;
+                    }
                 }
 
                 if ((wc >= 0xD800) && (wc <= 0xDBFF)) { // Check if wc is a high surrogate
@@ -315,6 +341,34 @@ namespace console {
 #endif
     }
 
+    static char32_t decode_utf8(const std::string & input, size_t pos, size_t & advance) {
+        unsigned char c = static_cast<unsigned char>(input[pos]);
+        if ((c & 0x80u) == 0u) {
+            advance = 1;
+            return c;
+        }
+        if ((c & 0xE0u) == 0xC0u && pos + 1 < input.size()) {
+            advance = 2;
+            return ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(input[pos + 1]) & 0x3Fu);
+        }
+        if ((c & 0xF0u) == 0xE0u && pos + 2 < input.size()) {
+            advance = 3;
+            return ((c & 0x0Fu) << 12) |
+                   ((static_cast<unsigned char>(input[pos + 1]) & 0x3Fu) << 6) |
+                   (static_cast<unsigned char>(input[pos + 2]) & 0x3Fu);
+        }
+        if ((c & 0xF8u) == 0xF0u && pos + 3 < input.size()) {
+            advance = 4;
+            return ((c & 0x07u) << 18) |
+                   ((static_cast<unsigned char>(input[pos + 1]) & 0x3Fu) << 12) |
+                   ((static_cast<unsigned char>(input[pos + 2]) & 0x3Fu) << 6) |
+                   (static_cast<unsigned char>(input[pos + 3]) & 0x3Fu);
+        }
+
+        advance = 1;
+        return 0xFFFD; // replacement character for invalid input
+    }
+
     static void append_utf8(char32_t ch, std::string & out) {
         if (ch <= 0x7F) {
             out.push_back(static_cast<unsigned char>(ch));
@@ -336,20 +390,116 @@ namespace console {
     }
 
     // Helper function to remove the last UTF-8 character from a string
-    static void pop_back_utf8_char(std::string & line) {
-        if (line.empty()) {
-            return;
+    static size_t prev_utf8_char_pos(const std::string & line, size_t pos) {
+        if (pos == 0) return 0;
+        pos--;
+        while (pos > 0 && (line[pos] & 0xC0) == 0x80) {
+            pos--;
+        }
+        return pos;
+    }
+
+    static size_t next_utf8_char_pos(const std::string & line, size_t pos) {
+        if (pos >= line.length()) return line.length();
+        pos++;
+        while (pos < line.length() && (line[pos] & 0xC0) == 0x80) {
+            pos++;
+        }
+        return pos;
+    }
+
+    static void move_cursor(int delta);
+    static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths);
+    static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
+
+    static void clear_current_line(const std::vector<int> & widths) {
+        int total_width = 0;
+        for (int w : widths) {
+            total_width += (w > 0 ? w : 1);
         }
 
-        size_t pos = line.length() - 1;
+        if (total_width > 0) {
+            std::string spaces(total_width, ' ');
+            fwrite(spaces.c_str(), 1, total_width, out);
+            move_cursor(-total_width);
+        }
+    }
 
-        // Find the start of the last UTF-8 character (checking up to 4 bytes back)
-        for (size_t i = 0; i < 3 && pos > 0; ++i, --pos) {
-            if ((line[pos] & 0xC0) != 0x80) {
-                break; // Found the start of the character
+    static void set_line_contents(std::string new_line, std::string & line, std::vector<int> & widths, size_t & char_pos,
+                                  size_t & byte_pos) {
+        move_to_line_start(char_pos, byte_pos, widths);
+        clear_current_line(widths);
+
+        line = std::move(new_line);
+        widths.clear();
+        byte_pos = 0;
+        char_pos = 0;
+
+        size_t idx = 0;
+        while (idx < line.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, idx, advance);
+            int expected_width = estimateWidth(cp);
+            int real_width = put_codepoint(line.c_str() + idx, advance, expected_width);
+            if (real_width < 0) real_width = 0;
+            widths.push_back(real_width);
+            idx += advance;
+            ++char_pos;
+            byte_pos = idx;
+        }
+    }
+
+    static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths) {
+        int back_width = 0;
+        for (size_t i = 0; i < char_pos; ++i) {
+            back_width += widths[i];
+        }
+        move_cursor(-back_width);
+        char_pos = 0;
+        byte_pos = 0;
+    }
+
+    static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        int forward_width = 0;
+        for (size_t i = char_pos; i < widths.size(); ++i) {
+            forward_width += widths[i];
+        }
+        move_cursor(forward_width);
+        char_pos = widths.size();
+        byte_pos = line.length();
+    }
+
+    static void move_cursor(int delta) {
+        if (delta == 0) return;
+#if defined(_WIN32)
+        if (hConsole != NULL) {
+            CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+            GetConsoleScreenBufferInfo(hConsole, &bufferInfo);
+            COORD newCursorPosition = bufferInfo.dwCursorPosition;
+            int width = bufferInfo.dwSize.X;
+            int newX = newCursorPosition.X + delta;
+            int newY = newCursorPosition.Y;
+
+            while (newX >= width) {
+                newX -= width;
+                newY++;
             }
+            while (newX < 0) {
+                newX += width;
+                newY--;
+            }
+
+            newCursorPosition.X = newX;
+            newCursorPosition.Y = newY;
+            SetConsoleCursorPosition(hConsole, newCursorPosition);
         }
-        line.erase(pos);
+#else
+        if (delta < 0) {
+            for (int i = 0; i < -delta; i++) fprintf(out, "\b");
+        } else {
+            for (int i = 0; i < delta; i++) fprintf(out, "\033[C");
+        }
+#endif
     }
 
     static bool readline_advanced(std::string & line, bool multiline_input) {
@@ -361,9 +511,16 @@ namespace console {
         std::vector<int> widths;
         bool is_special_char = false;
         bool end_of_stream = false;
+        size_t history_index = history.size();
+
+        size_t byte_pos = 0; // current byte index
+        size_t char_pos = 0; // current character index (one char can be multiple bytes)
 
         char32_t input_char;
         while (true) {
+            assert(char_pos <= byte_pos);
+            assert(char_pos <= widths.size());
+
             fflush(out); // Ensure all output is displayed before waiting for input
             input_char = getchar32();
 
@@ -384,7 +541,74 @@ namespace console {
 
             if (input_char == '\033') { // Escape sequence
                 char32_t code = getchar32();
-                if (code == '[' || code == 0x1B) {
+                if (code == '[') {
+                    code = getchar32();
+                    if (code == 'D') { // left
+                        if (char_pos > 0) {
+                            int w = widths[char_pos - 1];
+                            move_cursor(-w);
+                            char_pos--;
+                            byte_pos = prev_utf8_char_pos(line, byte_pos);
+                        }
+                    } else if (code == 'C') { // right
+                        if (char_pos < widths.size()) {
+                            int w = widths[char_pos];
+                            move_cursor(w);
+                            char_pos++;
+                            byte_pos = next_utf8_char_pos(line, byte_pos);
+                        }
+                    } else if (code == 'H') { // home
+                        move_to_line_start(char_pos, byte_pos, widths);
+                    } else if (code == 'F') { // end
+                        move_to_line_end(char_pos, byte_pos, widths, line);
+                    } else if (code == 'A' || code == 'B') {
+                        // up/down
+                        if (!history.empty()) {
+                            if (code == 'A' && history_index > 0) {
+                                history_index--;
+                                set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                is_special_char = false;
+                            } else if (code == 'B') {
+                                if (history_index + 1 < history.size()) {
+                                    history_index++;
+                                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                    is_special_char = false;
+                                } else if (history_index < history.size()) {
+                                    history_index = history.size();
+                                    set_line_contents("", line, widths, char_pos, byte_pos);
+                                    is_special_char = false;
+                                }
+                            }
+                        }
+                    } else if (code >= '0' && code <= '9') {
+                        std::string digits;
+                        digits.push_back(static_cast<char>(code));
+                        while (true) {
+                            code = getchar32();
+                            if (code >= '0' && code <= '9') {
+                                digits.push_back(static_cast<char>(code));
+                                continue;
+                            }
+                            break;
+                        }
+
+                        if (code == '~') {
+                            if (digits == "1" || digits == "7") {
+                                move_to_line_start(char_pos, byte_pos, widths);
+                            } else if (digits == "4" || digits == "8") {
+                                move_to_line_end(char_pos, byte_pos, widths, line);
+                            }
+                        }
+                    } else {
+                        // Discard the rest of the escape sequence
+                        while ((code = getchar32()) != (char32_t) WEOF) {
+                            if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
+                                break;
+                            }
+                        }
+                    }
+                    // TODO: Handle Ctrl+Arrow
+                } else if (code == 0x1B) {
                     // Discard the rest of the escape sequence
                     while ((code = getchar32()) != (char32_t) WEOF) {
                         if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
@@ -392,28 +616,111 @@ namespace console {
                         }
                     }
                 }
-            } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
-                if (!widths.empty()) {
-                    int count;
-                    do {
-                        count = widths.back();
-                        widths.pop_back();
-                        // Move cursor back, print space, and move cursor back again
-                        for (int i = 0; i < count; i++) {
-                            replace_last(' ');
-                            pop_cursor();
+#if defined(_WIN32)
+            } else if (input_char == KEY_ARROW_LEFT) {
+                if (char_pos > 0) {
+                    int w = widths[char_pos - 1];
+                    move_cursor(-w);
+                    char_pos--;
+                    byte_pos = prev_utf8_char_pos(line, byte_pos);
+                }
+            } else if (input_char == KEY_ARROW_RIGHT) {
+                if (char_pos < widths.size()) {
+                    int w = widths[char_pos];
+                    move_cursor(w);
+                    char_pos++;
+                    byte_pos = next_utf8_char_pos(line, byte_pos);
+                }
+            } else if (input_char == KEY_HOME) {
+                move_to_line_start(char_pos, byte_pos, widths);
+            } else if (input_char == KEY_END) {
+                move_to_line_end(char_pos, byte_pos, widths, line);
+            } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
+                if (!history.empty()) {
+                    if (input_char == KEY_ARROW_UP && history_index > 0) {
+                        history_index--;
+                        set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                        is_special_char = false;
+                    } else if (input_char == KEY_ARROW_DOWN) {
+                        if (history_index + 1 < history.size()) {
+                            history_index++;
+                            set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                            is_special_char = false;
+                        } else if (history_index < history.size()) {
+                            history_index = history.size();
+                            set_line_contents("", line, widths, char_pos, byte_pos);
+                            is_special_char = false;
                         }
-                        pop_back_utf8_char(line);
-                    } while (count == 0 && !widths.empty());
+                    }
+                }
+#endif
+            } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
+                if (char_pos > 0) {
+                    int w = widths[char_pos - 1];
+                    move_cursor(-w);
+                    char_pos--;
+                    size_t prev_pos = prev_utf8_char_pos(line, byte_pos);
+                    size_t char_len = byte_pos - prev_pos;
+                    byte_pos = prev_pos;
+
+                    // remove the character
+                    line.erase(byte_pos, char_len);
+                    widths.erase(widths.begin() + char_pos);
+
+                    // redraw tail
+                    size_t p = byte_pos;
+                    int tail_width = 0;
+                    for (size_t i = char_pos; i < widths.size(); ++i) {
+                        size_t next_p = next_utf8_char_pos(line, p);
+                        put_codepoint(line.c_str() + p, next_p - p, widths[i]);
+                        tail_width += widths[i];
+                        p = next_p;
+                    }
+
+                    // clear display
+                    for (int i = 0; i < w; ++i) {
+                        fputc(' ', out);
+                    }
+                    move_cursor(-(tail_width + w));
                 }
             } else {
-                int offset = line.length();
-                append_utf8(input_char, line);
-                int width = put_codepoint(line.c_str() + offset, line.length() - offset, estimateWidth(input_char));
-                if (width < 0) {
-                    width = 0;
+                // insert character
+                std::string new_char_str;
+                append_utf8(input_char, new_char_str);
+                int w = estimateWidth(input_char);
+
+                if (char_pos == widths.size()) {
+                    // insert at the end
+                    line += new_char_str;
+                    int real_w = put_codepoint(new_char_str.c_str(), new_char_str.length(), w);
+                    if (real_w < 0) real_w = 0;
+                    widths.push_back(real_w);
+                    byte_pos += new_char_str.length();
+                    char_pos++;
+                } else {
+                    // insert in middle
+                    line.insert(byte_pos, new_char_str);
+
+                    int real_w = put_codepoint(new_char_str.c_str(), new_char_str.length(), w);
+                    if (real_w < 0) real_w = 0;
+
+                    widths.insert(widths.begin() + char_pos, real_w);
+
+                    // print the tail
+                    size_t p = byte_pos + new_char_str.length();
+                    int tail_width = 0;
+                    for (size_t i = char_pos + 1; i < widths.size(); ++i) {
+                        size_t next_p = next_utf8_char_pos(line, p);
+                        put_codepoint(line.c_str() + p, next_p - p, widths[i]);
+                        tail_width += widths[i];
+                        p = next_p;
+                    }
+
+                    move_cursor(-tail_width);
+
+                    byte_pos += new_char_str.length();
+                    char_pos++;
                 }
-                widths.push_back(width);
             }
 
             if (!line.empty() && (line.back() == '\\' || line.back() == '/')) {
@@ -449,6 +756,14 @@ namespace console {
                 line += '\n';
                 fputc('\n', out);
             }
+        }
+
+        if (!end_of_stream && !line.empty()) {
+            std::string history_entry = line;
+            if (!history_entry.empty() && history_entry.back() == '\n') {
+                history_entry.pop_back();
+            }
+            history.push_back(std::move(history_entry));
         }
 
         fflush(out);
