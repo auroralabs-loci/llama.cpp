@@ -411,6 +411,23 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv(ggml_me
     return res;
 }
 
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_conv_batched(ggml_metal_library_t lib, const ggml_tensor * op) {
+    GGML_ASSERT(op->src[0]->type == GGML_TYPE_F32);
+    GGML_ASSERT(op->src[1]->type == GGML_TYPE_F32);
+
+    GGML_ASSERT(ggml_is_contiguous(op->src[0]));
+    GGML_ASSERT(ggml_is_contiguous(op->src[1]));
+
+    const char * name = "kernel_ssm_conv_f32_f32_b256";
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, name, name, nullptr);
+    }
+
+    return res;
+}
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan(ggml_metal_library_t lib, const ggml_tensor * op)  {
     GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
 
@@ -427,7 +444,37 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan(ggml_me
         res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
     }
 
-    res.smem = 32*sizeof(float)*nsg;
+    // Shared memory layout:
+    // - sgptg * NW floats for partial sums (nsg * 32)
+    // - sgptg floats for shared_x_dt (nsg)
+    // - sgptg floats for shared_dA (nsg)
+    // Total: nsg * (32 + 2) floats
+    res.smem = (32 + 2)*sizeof(float)*nsg;
+
+    return res;
+}
+
+ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_ssm_scan_ssd(ggml_metal_library_t lib, const ggml_tensor * op)  {
+    GGML_TENSOR_LOCALS( int32_t, ne0, op->src[0], ne);
+
+    char base[256];
+    char name[256];
+
+    const int nsg = (ne00 + 31)/32;
+
+    snprintf(base, 256, "kernel_ssm_scan_ssd_%s", ggml_type_name(op->src[0]->type));
+    snprintf(name, 256, "%s_nsg=%d", base, nsg);
+
+    ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
+    if (!res.pipeline) {
+        res = ggml_metal_library_compile_pipeline(lib, base, name, nullptr);
+    }
+
+    // Shared memory layout for SSD kernel:
+    // - BATCH_SIZE * sgptg floats for partial sums
+    // BATCH_SIZE = 8, so 8 * nsg floats
+    constexpr int BATCH_SIZE = 8;
+    res.smem = BATCH_SIZE * nsg * sizeof(float);
 
     return res;
 }
