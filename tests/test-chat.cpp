@@ -3744,7 +3744,6 @@ static void test_template_output_peg_parsers() {
             t.expect.content = R"({"amount": 123.45, "date": "2025-12-03"})";
         });
     }
-
 }
 
 static void test_msg_diffs_compute() {
