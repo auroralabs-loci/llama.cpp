@@ -8,15 +8,19 @@
 #include "ggml-cpp.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
+#include "ggml/src/ggml-impl.h"
 #include "gguf.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <unordered_set>
 #include <vector>
 #include <cinttypes>
@@ -2004,16 +2008,67 @@ private:
     //
     // utility functions
     //
-
-    void cb(ggml_tensor * cur0, const char * name, int il) const {
-        if (ctx->debug_graph) {
-            ggml_tensor * cur = ggml_cpy(ctx0, cur0, ggml_dup_tensor(ctx0, cur0));
-            std::string cur_name = il >= 0 ? std::string(name) + "_" + std::to_string(il) : name;
-            ggml_set_name(cur, cur_name.c_str());
-            ggml_set_output(cur);
-            ggml_build_forward_expand(gf, cur);
-            ctx->debug_print_tensors.push_back(cur);
+    static float ggml_get_float_value(uint8_t * data, ggml_type type, const size_t * nb, size_t i0, size_t i1, size_t i2, size_t i3) {
+        size_t i = i3 * nb[3] + i2 * nb[2] + i1 * nb[1] + i0 * nb[0];
+        float  v;
+        if (type == GGML_TYPE_F16) {
+            v = ggml_fp16_to_fp32(*(ggml_fp16_t *) &data[i]);
+        } else if (type == GGML_TYPE_F32) {
+            v = *(float *) &data[i];
+        } else if (type == GGML_TYPE_I64) {
+            v = (float) *(int64_t *) &data[i];
+        } else if (type == GGML_TYPE_I32) {
+            v = (float) *(int32_t *) &data[i];
+        } else if (type == GGML_TYPE_I16) {
+            v = (float) *(int16_t *) &data[i];
+        } else if (type == GGML_TYPE_I8) {
+            v = (float) *(int8_t *) &data[i];
+        } else if (type == GGML_TYPE_BF16) {
+            v = ggml_bf16_to_fp32(*(ggml_bf16_t *) &data[i]);
+        } else {
+            GGML_ABORT("fatal error");
         }
+        return v;
+    }
+
+    static void print_debug(ggml_tensor * dst, int ith, int nth, void * userdata) {
+        GGML_UNUSED(nth);
+        GGML_UNUSED(userdata);
+        if (ith != 0) {
+            return;
+        }
+
+        ggml_tensor * t = dst->src[0];
+        uint8_t * data = (uint8_t *) t->data;
+
+        print_tensor_shape(t);
+        print_tensor_data(t, data, 3);
+
+        double sum = 0;
+        float lowest = 0;
+        float highest = 0;
+        for (int64_t i3 = 0; i3 < t->ne[3]; i3++) {
+            for (int64_t i2 = 0; i2 < t->ne[2]; i2++) {
+                for (int64_t i1 = 0; i1 < t->ne[1]; i1++) {
+                    for (int64_t i0 = 0; i0 < t->ne[0]; i0++) {
+                        const float v = ggml_get_float_value(data, t->type, t->nb, i0, i1, i2, i3);
+                        sum += v;
+                        lowest = std::min(v, lowest);
+                        highest = std::max(v, highest);
+                    }
+                }
+            }
+        }
+
+        printf("sum = %.6f, max = %.6f, min = %.6f\n", sum, highest, lowest);
+    }
+
+    void cb(ggml_tensor * t, const char * name, int il) const {
+        std::string t_name = std::string(name) + "_" + std::to_string(il);
+        ggml_tensor * args[] = { t };
+        ggml_tensor * res = ggml_custom_4d(ctx0, t->type, t->ne[0], t->ne[1], t->ne[2], t->ne[3], args, 1, print_debug, 1, nullptr);
+        strcpy(res->name, t_name.c_str());
+        ggml_build_forward_expand(gf, res);
     }
 
     // siglip2 naflex
@@ -4984,18 +5039,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     if (status != GGML_STATUS_SUCCESS) {
         LOG_ERR("%s: ggml_backend_sched_graph_compute failed with error %d\n", __func__, status);
         return false;
-    }
-
-    // print debug nodes
-    if (ctx->debug_graph) {
-        LOG_INF("\n\n---\n\n");
-        LOG_INF("\n\nDebug graph:\n\n");
-        for (ggml_tensor * t : ctx->debug_print_tensors) {
-            std::vector<uint8_t> data(ggml_nbytes(t));
-            ggml_backend_tensor_get(t, data.data(), 0, ggml_nbytes(t));
-            print_tensor_shape(t);
-            print_tensor_data(t, data.data(), 3);
-        }
     }
 
     // the last node is the embedding tensor
