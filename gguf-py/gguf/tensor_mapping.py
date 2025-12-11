@@ -1264,6 +1264,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wq", # pixtral
             "visual.blocks.{bid}.attn.q", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wq", # kimi-vl, generated
+            "blocks.{bid}.attn.q_proj", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_Q_NORM: (
@@ -1281,6 +1282,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wk", # pixtral
             "visual.blocks.{bid}.attn.k", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wk", # kimi-vl, generated
+            "blocks.{bid}.attn.k_proj", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_K_NORM: (
@@ -1298,6 +1300,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wv", # pixtral
             "visual.blocks.{bid}.attn.v", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wv", # kimi-vl, generated
+            "blocks.{bid}.attn.v_proj", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_INPUT_NORM: (
@@ -1312,6 +1315,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.norm1", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.norm0", # kimi-vl (norm0/norm1)
             "model.vision.transformer.layers.{bid}.input_layernorm", # cogvlm
+            "blocks.{bid}.norm1", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_O: (
@@ -1327,6 +1331,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.attn.proj", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.wo", # kimi-vl
             "model.vision.transformer.layers.{bid}.attention.dense", # cogvlm
+            "blocks.{bid}.attn.proj", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_POST_ATTN_NORM: (
@@ -1341,6 +1346,11 @@ class TensorNameMap:
             "visual.blocks.{bid}.norm2", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.norm1", # kimi-vl (norm0/norm1)
             "model.vision.transformer.layers.{bid}.post_attention_layernorm", # cogvlm
+            "blocks.{bid}.norm2", # JinaCLIP v2 vision
+        ),
+
+        MODEL_TENSOR.V_ENC_ATTN_LN: (
+            "blocks.{bid}.attn.inner_attn_ln",              # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_FFN_UP: (
@@ -1356,12 +1366,14 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc1", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc0", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc1", # cogvlm
+            "blocks.{bid}.mlp.w2", # JinaCLIP v2 vision (up)
         ),
 
         MODEL_TENSOR.V_ENC_FFN_GATE: (
             "vision_tower.transformer.layers.{bid}.feed_forward.gate_proj", # pixtral-hf
             "vision_encoder.transformer.layers.{bid}.feed_forward.w1", # pixtral
             "visual.blocks.{bid}.mlp.gate_proj", # qwen2.5vl
+            "blocks.{bid}.mlp.w1", # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_ENC_FFN_DOWN: (
@@ -1377,6 +1389,11 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc2", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc1", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc2", # cogvlm
+            "blocks.{bid}.mlp.w3", # JinaCLIP v2 vision (down)
+        ),
+
+        MODEL_TENSOR.V_ENC_FFN_NORM: (
+            "blocks.{bid}.mlp.ffn_ln",              # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_LAYER_SCALE_1: (
@@ -1387,6 +1404,14 @@ class TensorNameMap:
         MODEL_TENSOR.V_LAYER_SCALE_2: (
             "vision_tower.vision_model.encoder.layers.{bid}.ls2", # InternVL
             "model.vision_tower.encoder.layer.{bid}.lambda_2", # Intern-S1
+        ),
+
+        MODEL_TENSOR.V_ENC_ATTN_Q_BIAS: (
+            "blocks.{bid}.attn.q_bias",              # JinaCLIP v2 vision
+        ),
+
+        MODEL_TENSOR.V_ENC_ATTN_V_BIAS: (
+            "blocks.{bid}.attn.v_bias",              # JinaCLIP v2 vision
         ),
 
         MODEL_TENSOR.V_PRE_NORM: (
