@@ -1359,7 +1359,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.sampling.top_k = value;
             params.sampling.user_sampling_config |= common_params_sampling_config::COMMON_PARAMS_SAMPLING_CONFIG_TOP_K;
         }
-    ).set_sparam());
+    ).set_sparam().set_env("LLAMA_ARG_TOP_K"));
     add_opt(common_arg(
         {"--top-p"}, "N",
         string_format("top-p sampling (default: %.1f, 1.0 = disabled)", (double)params.sampling.top_p),
@@ -1600,6 +1600,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.sampling.grammar = json_schema_to_grammar(json::parse(schema));
         }
     ).set_sparam());
+    add_opt(common_arg(
+        {"--backend-sampling"},
+        "enable backend sampling (default: disabled)",
+        [](common_params & params) {
+            params.sampling.backend_sampling = true;
+        }
+    ).set_sparam().set_env("LLAMA_ARG_BACKEND_SAMPLING"));
     add_opt(common_arg(
         {"--pooling"}, "{none,mean,cls,last,rank}",
         "pooling type for embeddings, use model default if unspecified",
