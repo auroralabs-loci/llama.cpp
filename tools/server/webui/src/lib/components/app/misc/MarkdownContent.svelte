@@ -296,19 +296,32 @@
 		}
 	}
 
+	function escapeHtml(text: string): string {
+		return text
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/\n/g, '<br>');
+	}
+
 	$effect(() => {
-		if (content) {
-			processMarkdown(content)
-				.then((result) => {
-					processedHtml = result;
-				})
-				.catch((error) => {
-					console.error('Failed to process markdown:', error);
-					processedHtml = content.replace(/\n/g, '<br>');
-				});
-		} else {
+		if (!content) {
 			processedHtml = '';
+			return;
 		}
+
+		// Render a safe, synchronous fallback immediately so streaming updates are visible
+		const fallback = escapeHtml(content);
+		processedHtml = fallback;
+
+		processMarkdown(content)
+			.then((result) => {
+				processedHtml = result;
+			})
+			.catch((error) => {
+				console.error('Failed to process markdown:', error);
+				processedHtml = fallback;
+			});
 	});
 
 	$effect(() => {

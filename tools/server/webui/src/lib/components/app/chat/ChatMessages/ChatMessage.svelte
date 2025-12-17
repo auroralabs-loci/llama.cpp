@@ -5,6 +5,7 @@
 	import ChatMessageAssistant from './ChatMessageAssistant.svelte';
 	import ChatMessageUser from './ChatMessageUser.svelte';
 	import ChatMessageSystem from './ChatMessageSystem.svelte';
+	import { conversationsStore } from '$lib/stores/conversations.svelte';
 
 	interface Props {
 		class?: string;
@@ -22,6 +23,7 @@
 		onNavigateToSibling?: (siblingId: string) => void;
 		onRegenerateWithBranching?: (message: DatabaseMessage, modelOverride?: string) => void;
 		siblingInfo?: ChatMessageSiblingInfo | null;
+		toolParentIds?: string[];
 	}
 
 	let {
@@ -35,8 +37,20 @@
 		onEditUserMessagePreserveResponses,
 		onNavigateToSibling,
 		onRegenerateWithBranching,
-		siblingInfo = null
+		siblingInfo = null,
+		toolParentIds
 	}: Props = $props();
+
+	type MessageWithToolExtras = DatabaseMessage & {
+		_actionTargetId?: string;
+		_toolMessagesCollected?: { toolCallId?: string | null; parsed: unknown }[];
+	};
+
+	const actionTargetId = $derived((message as MessageWithToolExtras)._actionTargetId ?? message.id);
+
+	function getActionTarget(): DatabaseMessage {
+		return conversationsStore.activeMessages.find((m) => m.id === actionTargetId) ?? message;
+	}
 
 	let deletionInfo = $state<{
 		totalCount: number;
@@ -95,12 +109,14 @@
 	}
 
 	function handleConfirmDelete() {
-		onDelete?.(message);
+		const target = getActionTarget();
+		onDelete?.(target);
 		showDeleteDialog = false;
 	}
 
 	async function handleDelete() {
-		deletionInfo = await chatStore.getDeletionInfo(message.id);
+		const target = getActionTarget();
+		deletionInfo = await chatStore.getDeletionInfo(target.id);
 		showDeleteDialog = true;
 	}
 
@@ -136,11 +152,13 @@
 	}
 
 	function handleRegenerate(modelOverride?: string) {
-		onRegenerateWithBranching?.(message, modelOverride);
+		const target = getActionTarget();
+		onRegenerateWithBranching?.(target, modelOverride);
 	}
 
 	function handleContinue() {
-		onContinueAssistantMessage?.(message);
+		const target = getActionTarget();
+		onContinueAssistantMessage?.(target);
 	}
 
 	function handleSaveEdit() {
@@ -213,7 +231,7 @@
 		{showDeleteDialog}
 		{siblingInfo}
 	/>
-{:else}
+{:else if message.role === 'assistant'}
 	<ChatMessageAssistant
 		bind:textareaElement
 		class={className}
@@ -240,5 +258,11 @@
 		{siblingInfo}
 		{thinkingContent}
 		{toolCallContent}
+		toolParentIds={toolParentIds ?? [message.id]}
+		toolMessagesCollected={(message as MessageWithToolExtras)._toolMessagesCollected}
 	/>
+{:else if message.role === 'tool'}
+	<!-- Tool messages are rendered inline inside their parent assistant's reasoning block.
+	     Skip standalone rendering to avoid duplicate bubbles. -->
+	<!-- Intentionally left blank -->
 {/if}
