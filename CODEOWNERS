@@ -10,6 +10,7 @@
 /common/arg.*                           @ggerganov
 /common/base64.hpp.*                    @ggerganov
 /common/build-info.*                    @ggerganov
+/common/chat.*                          @pwilkin
 /common/chat-peg-parser.*               @aldehir
 /common/common.*                        @ggerganov
 /common/console.*                       @ggerganov
@@ -31,7 +32,7 @@
 /examples/export-docs/                  @ggerganov
 /examples/gen-docs/                     @ggerganov
 /examples/gguf/                         @ggerganov
-/examples/llama.android/                @ggerganov
+/examples/llama.android/                @ggerganov @hanyin-arm @naco-siren
 /examples/llama.swiftui/                @ggerganov
 /examples/llama.vim                     @ggerganov
 /examples/lookahead/                    @ggerganov
@@ -84,8 +85,10 @@
 /src/llama-vocab.*                      @CISC
 /src/models/                            @CISC
 /tests/                                 @ggerganov
+/tests/test-chat-.*                     @pwilkin
 /tools/batched-bench/                   @ggerganov
-/tools/main/                            @ggerganov
+/tools/cli/                             @ngxson
+/tools/completion/                      @ggerganov
 /tools/mtmd/                            @ngxson
 /tools/perplexity/                      @ggerganov
 /tools/quantize/                        @ggerganov

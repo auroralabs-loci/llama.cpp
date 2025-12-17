@@ -1,12 +1,14 @@
 #include "server-common.h"
 #include "server-models.h"
 
+#include "preset.h"
 #include "download.h"
 
 #include <cpp-httplib/httplib.h> // TODO: remove this once we use HTTP client from download.h
 #include <sheredom/subprocess.h>
 
 #include <functional>
+#include <algorithm>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -14,6 +16,8 @@
 #include <atomic>
 #include <chrono>
 #include <queue>
+#include <filesystem>
+#include <cstring>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -30,7 +34,12 @@
 #include <limits.h>
 #endif
 
-#define CMD_EXIT "exit"
+#define CMD_ROUTER_TO_CHILD_EXIT  "cmd_router_to_child:exit"
+#define CMD_CHILD_TO_ROUTER_READY "cmd_child_to_router:ready"
+
+// address for child process, this is needed because router may run on 0.0.0.0
+// ref: https://github.com/ggml-org/llama.cpp/issues/17862
+#define CHILD_ADDR "127.0.0.1"
 
 static std::filesystem::path get_server_exec_path() {
 #if defined(_WIN32)
@@ -132,6 +141,93 @@ static std::vector<local_model> list_local_models(const std::string & dir) {
 }
 
 //
+// server_presets
+//
+
+
+server_presets::server_presets(int argc, char ** argv, common_params & base_params, const std::string & presets_path)
+        : ctx_params(common_params_parser_init(base_params, LLAMA_EXAMPLE_SERVER)) {
+    if (!presets_path.empty()) {
+        presets = common_presets_load(presets_path, ctx_params);
+        SRV_INF("Loaded %zu presets from %s\n", presets.size(), presets_path.c_str());
+    }
+
+    // populate reserved args (will be appended by the router)
+    for (auto & opt : ctx_params.options) {
+        if (opt.env == nullptr) {
+            continue;
+        }
+        std::string env = opt.env;
+        if (env == "LLAMA_ARG_PORT" ||
+            env == "LLAMA_ARG_HOST" ||
+            env == "LLAMA_ARG_ALIAS" ||
+            env == "LLAMA_ARG_API_KEY" ||
+            env == "LLAMA_ARG_MODELS_DIR" ||
+            env == "LLAMA_ARG_MODELS_MAX" ||
+            env == "LLAMA_ARG_MODELS_PRESET" ||
+            env == "LLAMA_ARG_MODEL" ||
+            env == "LLAMA_ARG_MMPROJ" ||
+            env == "LLAMA_ARG_HF_REPO" ||
+            env == "LLAMA_ARG_NO_MODELS_AUTOLOAD") {
+            control_args[env] = opt;
+        }
+    }
+
+    // read base args from router's argv
+    common_params_to_map(argc, argv, LLAMA_EXAMPLE_SERVER, base_args);
+
+    // remove any router-controlled args from base_args
+    for (const auto & cargs : control_args) {
+        auto it = base_args.find(cargs.second);
+        if (it != base_args.end()) {
+            base_args.erase(it);
+        }
+    }
+}
+
+common_preset server_presets::get_preset(const std::string & name) {
+    auto it = presets.find(name);
+    if (it != presets.end()) {
+        return it->second;
+    }
+    return common_preset();
+}
+
+void server_presets::render_args(server_model_meta & meta) {
+    common_preset preset = meta.preset; // copy
+    // merging 3 kinds of args:
+    // 1. model-specific args (from preset)
+    // force removing control args if any
+    for (auto & cargs : control_args) {
+        if (preset.options.find(cargs.second) != preset.options.end()) {
+            SRV_WRN("Preset '%s' contains reserved arg '%s', removing it\n", preset.name.c_str(), cargs.second.args[0]);
+            preset.options.erase(cargs.second);
+        }
+    }
+    // 2. base args (from router)
+    // inherit from base args
+    for (const auto & [arg, value] : base_args) {
+        preset.options[arg] = value;
+    }
+    // 3. control args (from router)
+    // set control values
+    preset.options[control_args["LLAMA_ARG_HOST"]] = CHILD_ADDR;
+    preset.options[control_args["LLAMA_ARG_PORT"]] = std::to_string(meta.port);
+    preset.options[control_args["LLAMA_ARG_ALIAS"]] = meta.name;
+    if (meta.in_cache) {
+        preset.options[control_args["LLAMA_ARG_HF_REPO"]] = meta.name;
+    } else {
+        preset.options[control_args["LLAMA_ARG_MODEL"]] = meta.path;
+        if (!meta.path_mmproj.empty()) {
+            preset.options[control_args["LLAMA_ARG_MMPROJ"]] = meta.path_mmproj;
+        }
+    }
+    meta.args = preset.to_args();
+    // add back the binary path at the front
+    meta.args.insert(meta.args.begin(), get_server_exec_path().string());
+}
+
+//
 // server_models
 //
 
@@ -139,7 +235,7 @@ server_models::server_models(
         const common_params & params,
         int argc,
         char ** argv,
-        char ** envp) : base_params(params) {
+        char ** envp) : base_params(params), presets(argc, argv, base_params, params.models_preset) {
     for (int i = 0; i < argc; i++) {
         base_args.push_back(std::string(argv[i]));
     }
@@ -154,11 +250,58 @@ server_models::server_models(
         LOG_WRN("failed to get server executable path: %s\n", e.what());
         LOG_WRN("using original argv[0] as fallback: %s\n", base_args[0].c_str());
     }
-    // TODO: allow refreshing cached model list
-    // add cached models
+    load_models();
+}
+
+void server_models::add_model(server_model_meta && meta) {
+    if (mapping.find(meta.name) != mapping.end()) {
+        throw std::runtime_error(string_format("model '%s' appears multiple times", meta.name.c_str()));
+    }
+    presets.render_args(meta); // populate meta.args
+    std::string name = meta.name;
+    mapping[name] = instance_t{
+        /* subproc */ std::make_shared<subprocess_s>(),
+        /* th      */ std::thread(),
+        /* meta    */ std::move(meta)
+    };
+}
+
+static std::vector<local_model> list_custom_path_models(server_presets & presets) {
+    // detect any custom-path models in presets
+    std::vector<local_model> custom_models;
+    for (auto & [model_name, preset] : presets.presets) {
+        local_model model;
+        model.name = model_name;
+        std::vector<common_arg> to_erase;
+        for (auto & [arg, value] : preset.options) {
+            std::string env(arg.env ? arg.env : "");
+            if (env == "LLAMA_ARG_MODEL") {
+                model.path = value;
+                to_erase.push_back(arg);
+            }
+            if (env == "LLAMA_ARG_MMPROJ") {
+                model.path_mmproj = value;
+                to_erase.push_back(arg);
+            }
+        }
+        for (auto & arg : to_erase) {
+            preset.options.erase(arg);
+        }
+        if (!model.name.empty() && !model.path.empty()) {
+            custom_models.push_back(model);
+        }
+    }
+    return custom_models;
+}
+
+// TODO: allow refreshing cached model list
+void server_models::load_models() {
+    // loading models from 3 sources:
+    // 1. cached models
     auto cached_models = common_list_cached_models();
     for (const auto & model : cached_models) {
         server_model_meta meta{
+            /* preset      */ presets.get_preset(model.to_string()),
             /* name        */ model.to_string(),
             /* path        */ model.manifest_path,
             /* path_mmproj */ "", // auto-detected when loading
@@ -169,21 +312,18 @@ server_models::server_models(
             /* args        */ std::vector<std::string>(),
             /* exit_code   */ 0
         };
-        mapping[meta.name] = instance_t{
-            /* subproc */ std::make_shared<subprocess_s>(),
-            /* th      */ std::thread(),
-            /* meta    */ meta
-        };
+        add_model(std::move(meta));
     }
-    // add local models specificed via --models-dir
-    if (!params.models_dir.empty()) {
-        auto local_models = list_local_models(params.models_dir);
+    // 2. local models specificed via --models-dir
+    if (!base_params.models_dir.empty()) {
+        auto local_models = list_local_models(base_params.models_dir);
         for (const auto & model : local_models) {
             if (mapping.find(model.name) != mapping.end()) {
                 // already exists in cached models, skip
                 continue;
             }
             server_model_meta meta{
+                /* preset      */ presets.get_preset(model.name),
                 /* name        */ model.name,
                 /* path        */ model.path,
                 /* path_mmproj */ model.path_mmproj,
@@ -194,12 +334,30 @@ server_models::server_models(
                 /* args        */ std::vector<std::string>(),
                 /* exit_code   */ 0
             };
-            mapping[meta.name] = instance_t{
-                /* subproc */ std::make_shared<subprocess_s>(),
-                /* th      */ std::thread(),
-                /* meta    */ meta
-            };
+            add_model(std::move(meta));
         }
+    }
+    // 3. custom-path models specified in presets
+    auto custom_models = list_custom_path_models(presets);
+    for (const auto & model : custom_models) {
+        server_model_meta meta{
+            /* preset      */ presets.get_preset(model.name),
+            /* name        */ model.name,
+            /* path        */ model.path,
+            /* path_mmproj */ model.path_mmproj,
+            /* in_cache    */ false,
+            /* port        */ 0,
+            /* status      */ SERVER_MODEL_STATUS_UNLOADED,
+            /* last_used   */ 0,
+            /* args        */ std::vector<std::string>(),
+            /* exit_code   */ 0
+        };
+        add_model(std::move(meta));
+    }
+    // log available models
+    SRV_INF("Available models (%zu) (*: custom preset)\n", mapping.size());
+    for (const auto & [name, inst] : mapping) {
+        SRV_INF("  %c %s\n", inst.meta.preset.name.empty() ? ' ' : '*', name.c_str());
     }
 }
 
@@ -334,19 +492,7 @@ void server_models::unload_lru() {
     }
 }
 
-static void add_or_replace_arg(std::vector<std::string> & args, const std::string & key, const std::string & value) {
-    for (size_t i = 0; i < args.size(); i++) {
-        if (args[i] == key && i + 1 < args.size()) {
-            args[i + 1] = value;
-            return;
-        }
-    }
-    // not found, append
-    args.push_back(key);
-    args.push_back(value);
-}
-
-void server_models::load(const std::string & name, bool auto_load) {
+void server_models::load(const std::string & name) {
     if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
@@ -375,26 +521,10 @@ void server_models::load(const std::string & name, bool auto_load) {
     {
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
-        std::vector<std::string> child_args;
-        if (auto_load && !meta.args.empty()) {
-            child_args = meta.args; // copy previous args
-        } else {
-            child_args = base_args; // copy
-            if (inst.meta.in_cache) {
-                add_or_replace_arg(child_args, "-hf", inst.meta.name);
-            } else {
-                add_or_replace_arg(child_args, "-m", inst.meta.path);
-                if (!inst.meta.path_mmproj.empty()) {
-                    add_or_replace_arg(child_args, "--mmproj", inst.meta.path_mmproj);
-                }
-            }
-        }
+        presets.render_args(inst.meta); // update meta.args
 
-        // set model args
-        add_or_replace_arg(child_args, "--port", std::to_string(inst.meta.port));
-        add_or_replace_arg(child_args, "--alias", inst.meta.name);
-
-        std::vector<std::string> child_env = base_env; // copy
+        std::vector<std::string> child_args = inst.meta.args; // copy
+        std::vector<std::string> child_env  = base_env; // copy
         child_env.push_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(base_params.port));
 
         SRV_INF("%s", "spawning server instance with args:\n");
@@ -406,6 +536,8 @@ void server_models::load(const std::string & name, bool auto_load) {
         std::vector<char *> argv = to_char_ptr_array(child_args);
         std::vector<char *> envp = to_char_ptr_array(child_env);
 
+        // TODO @ngxson : maybe separate stdout and stderr in the future
+        //                so that we can use stdout for commands and stderr for logging
         int options = subprocess_option_no_window | subprocess_option_combined_stdout_stderr;
         int result = subprocess_create_ex(argv.data(), options, envp.data(), inst.subproc.get());
         if (result != 0) {
@@ -419,11 +551,17 @@ void server_models::load(const std::string & name, bool auto_load) {
     // captured variables are guaranteed to be destroyed only after the thread is joined
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
+        bool state_received = false; // true if child state received
         FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
         if (p_stdout_stderr) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), p_stdout_stderr) != nullptr) {
                 LOG("[%5d] %s", port, buffer);
+                if (!state_received && std::strstr(buffer, CMD_CHILD_TO_ROUTER_READY) != nullptr) {
+                    // child process is ready
+                    this->update_status(name, SERVER_MODEL_STATUS_LOADED);
+                    state_received = true;
+                }
             }
         } else {
             SRV_ERR("failed to get stdout/stderr of child process for name=%s\n", name.c_str());
@@ -467,7 +605,7 @@ static void interrupt_subprocess(FILE * stdin_file) {
     // because subprocess.h does not provide a way to send SIGINT,
     // we will send a command to the child process to exit gracefully
     if (stdin_file) {
-        fprintf(stdin_file, "%s\n", CMD_EXIT);
+        fprintf(stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
         fflush(stdin_file);
     }
 }
@@ -540,7 +678,7 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     }
     if (meta->status == SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-        load(name, true);
+        load(name);
     }
 
     SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());
@@ -570,7 +708,7 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     SRV_INF("proxying request to model %s on port %d\n", name.c_str(), meta->port);
     auto proxy = std::make_unique<server_http_proxy>(
             method,
-            base_params.hostname,
+            CHILD_ADDR,
             meta->port,
             req.path,
             req.headers,
@@ -579,32 +717,13 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     return proxy;
 }
 
-std::thread server_models::setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
+std::thread server_models::setup_child_server(const std::function<void(int)> & shutdown_handler) {
     // send a notification to the router server that a model instance is ready
-    // TODO @ngxson : use HTTP client from libcommon
-    httplib::Client cli(base_params.hostname, router_port);
-    cli.set_connection_timeout(0, 200000); // 200 milliseconds
-
-    httplib::Request req;
-    req.method = "POST";
-    req.path   = "/models/status";
-    req.set_header("Content-Type", "application/json");
-    if (!base_params.api_keys.empty()) {
-        req.set_header("Authorization", "Bearer " + base_params.api_keys[0]);
-    }
-
-    json body;
-    body["model"] = name;
-    body["value"] = server_model_status_to_string(SERVER_MODEL_STATUS_LOADED);
-    req.body = body.dump();
-
-    SRV_INF("notifying router server (port=%d) that model %s is ready\n", router_port, name.c_str());
-    auto result = cli.send(std::move(req));
-    if (result.error() != httplib::Error::Success) {
-        auto err_str = httplib::to_string(result.error());
-        SRV_ERR("failed to notify router server: %s\n", err_str.c_str());
-        exit(1); // force exit
-    }
+    common_log_pause(common_log_main());
+    fflush(stdout);
+    fprintf(stdout, "%s\n", CMD_CHILD_TO_ROUTER_READY);
+    fflush(stdout);
+    common_log_resume(common_log_main());
 
     // setup thread for monitoring stdin
     return std::thread([shutdown_handler]() {
@@ -618,7 +737,7 @@ std::thread server_models::setup_child_server(const common_params & base_params,
                 eof = true;
                 break;
             }
-            if (line.find(CMD_EXIT) != std::string::npos) {
+            if (line.find(CMD_ROUTER_TO_CHILD_EXIT) != std::string::npos) {
                 SRV_INF("%s", "exit command received, exiting...\n");
                 shutdown_handler(0);
                 break;
@@ -723,38 +842,6 @@ void server_models_routes::init_routes() {
         return models.proxy_request(req, method, name, true); // update last usage for POST request only
     };
 
-    this->get_router_models = [this](const server_http_req &) {
-        auto res = std::make_unique<server_http_res>();
-        json models_json = json::array();
-        auto all_models = models.get_all_meta();
-        std::time_t t = std::time(0);
-        for (const auto & meta : all_models) {
-            json status {
-                {"value", server_model_status_to_string(meta.status)},
-                {"args",  meta.args},
-            };
-            if (meta.is_failed()) {
-                status["exit_code"] = meta.exit_code;
-                status["failed"]    = true;
-            }
-            models_json.push_back(json {
-                {"id",       meta.name},
-                {"object",   "model"},    // for OAI-compat
-                {"owned_by", "llamacpp"}, // for OAI-compat
-                {"created",  t},          // for OAI-compat
-                {"in_cache", meta.in_cache},
-                {"path",     meta.path},
-                {"status",   status},
-                // TODO: add other fields, may require reading GGUF metadata
-            });
-        }
-        res_ok(res, {
-            {"data", models_json},
-            {"object", "list"},
-        });
-        return res;
-    };
-
     this->post_router_models_load = [this](const server_http_req & req) {
         auto res = std::make_unique<server_http_res>();
         json body = json::parse(req.body);
@@ -768,19 +855,7 @@ void server_models_routes::init_routes() {
             res_err(res, format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        models.load(name, false);
-        res_ok(res, {{"success", true}});
-        return res;
-    };
-
-    // used by child process to notify the router about status change
-    // TODO @ngxson : maybe implement authentication for this endpoint in the future
-    this->post_router_models_status = [this](const server_http_req & req) {
-        auto res = std::make_unique<server_http_res>();
-        json body = json::parse(req.body);
-        std::string model = json_value(body, "model", std::string());
-        std::string value = json_value(body, "value", std::string());
-        models.update_status(model, server_model_status_from_string(value));
+        models.load(name);
         res_ok(res, {{"success", true}});
         return res;
     };
@@ -792,9 +867,12 @@ void server_models_routes::init_routes() {
         std::time_t t = std::time(0);
         for (const auto & meta : all_models) {
             json status {
-                {"value", server_model_status_to_string(meta.status)},
-                {"args",  meta.args},
+                {"value",  server_model_status_to_string(meta.status)},
+                {"args",   meta.args},
             };
+            if (!meta.preset.name.empty()) {
+                status["preset"] = meta.preset.to_ini();
+            }
             if (meta.is_failed()) {
                 status["exit_code"] = meta.exit_code;
                 status["failed"]    = true;
@@ -889,6 +967,29 @@ struct pipe_t {
     }
 };
 
+static std::string to_lower_copy(const std::string & value) {
+    std::string lowered(value.size(), '\0');
+    std::transform(value.begin(), value.end(), lowered.begin(), [](unsigned char c) { return std::tolower(c); });
+    return lowered;
+}
+
+static bool should_strip_proxy_header(const std::string & header_name) {
+    // Headers that get duplicated when router forwards child responses
+    if (header_name == "server" ||
+        header_name == "transfer-encoding" ||
+        header_name == "content-length" || // quick fix for https://github.com/ggml-org/llama.cpp/issues/17710
+        header_name == "keep-alive") {
+        return true;
+    }
+
+    // Router injects CORS, child also sends them: duplicate
+    if (header_name.rfind("access-control-", 0) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
 server_http_proxy::server_http_proxy(
         const std::string & method,
         const std::string & host,
@@ -925,6 +1026,14 @@ server_http_proxy::server_http_proxy(
         msg_t msg;
         msg.status = response.status;
         for (const auto & [key, value] : response.headers) {
+            const auto lowered = to_lower_copy(key);
+            if (should_strip_proxy_header(lowered)) {
+                continue;
+            }
+            if (lowered == "content-type") {
+                msg.content_type = value;
+                continue;
+            }
             msg.headers[key] = value;
         }
         return pipe->write(std::move(msg)); // send headers first
@@ -932,7 +1041,7 @@ server_http_proxy::server_http_proxy(
     httplib::ContentReceiverWithProgress content_receiver = [pipe](const char * data, size_t data_length, size_t, size_t) {
         // send data chunks
         // returns false if pipe is closed / broken (signal to stop receiving)
-        return pipe->write({{}, 0, std::string(data, data_length)});
+        return pipe->write({{}, 0, std::string(data, data_length), ""});
     };
 
     // prepare the request to destination server
@@ -955,8 +1064,8 @@ server_http_proxy::server_http_proxy(
         if (result.error() != httplib::Error::Success) {
             auto err_str = httplib::to_string(result.error());
             SRV_ERR("http client error: %s\n", err_str.c_str());
-            pipe->write({{}, 500, ""}); // header
-            pipe->write({{}, 0, "proxy error: " + err_str}); // body
+            pipe->write({{}, 500, "", ""}); // header
+            pipe->write({{}, 0, "proxy error: " + err_str, ""}); // body
         }
         pipe->close_write(); // signal EOF to reader
         SRV_DBG("%s", "client request thread ended\n");
@@ -964,12 +1073,17 @@ server_http_proxy::server_http_proxy(
     this->thread.detach();
 
     // wait for the first chunk (headers)
-    msg_t header;
-    if (pipe->read(header, should_stop)) {
-        SRV_DBG("%s", "received response headers\n");
-        this->status  = header.status;
-        this->headers = header.headers;
-    } else {
-        SRV_DBG("%s", "no response headers received (request cancelled?)\n");
+    {
+        msg_t header;
+        if (pipe->read(header, should_stop)) {
+            SRV_DBG("%s", "received response headers\n");
+            this->status  = header.status;
+            this->headers = std::move(header.headers);
+            if (!header.content_type.empty()) {
+                this->content_type = std::move(header.content_type);
+            }
+        } else {
+            SRV_DBG("%s", "no response headers received (request cancelled?)\n");
+        }
     }
 }
