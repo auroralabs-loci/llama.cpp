@@ -1084,6 +1084,7 @@ struct common_init_result::impl {
     std::vector<llama_adapter_lora_ptr> lora;
 
     std::vector<common_sampler_ptr> samplers;
+    std::vector<llama_sampler_seq_config> samplers_seq_config;
 };
 
 common_init_result::common_init_result(common_params & params) :
@@ -1141,10 +1142,19 @@ common_init_result::common_init_result(common_params & params) :
     //    params.sampling.dry_penalty_last_n = llama_n_ctx(lctx);
     //}
 
+    // init the backend samplers as part of the context creation
     pimpl->samplers.resize(cparams.n_seq_max);
+    pimpl->samplers_seq_config.resize(cparams.n_seq_max);
 
     for (int i = 0; i < (int) cparams.n_seq_max; ++i) {
         pimpl->samplers[i].reset(common_sampler_init(model, params.sampling));
+        pimpl->samplers_seq_config[i] = { i, common_sampler_get(pimpl->samplers[i].get()) };
+    }
+
+    // TODO: temporarily gated behind a flag
+    if (params.sampling.backend_sampling) {
+        cparams.samplers   = pimpl->samplers_seq_config.data();
+        cparams.n_samplers = pimpl->samplers_seq_config.size();
     }
 
     llama_context * lctx = llama_init_from_model(model, cparams);
