@@ -63,6 +63,18 @@ void ggml_cuda_op_mean(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
     const int id  = ggml_cuda_get_device();
     const int nsm = ggml_cuda_info().devices[id].nsm;
+
+    /*
+     * Occupancy heuristic:
+     * 1) If number of rows is small (low parallelization), devote more threads (512) per row.
+     *    This gives the SM 16 full warps to cycle through, hiding memory latency via pipelining.
+     * 2) If nrows is large but cols are medium-large, use 128 threads (4 warps).
+     *    Since there are many blocks (one per row), the GPU scheduler can hide latency by switching blocks.
+     *    128 threads is enough to saturate the concurrent execution of 4 warps typical in an SM.
+     * 3) If columns are small (< 1024), use 32 threads (1 warp).
+     *    With 128 threads and 8x unroll, <1024 cols results in only 1 loop iteration,
+     *    making the synchronization overhead of larger blocks inefficient.
+     */
     if ((nrows / nsm) < 2) {
         const dim3 block_dims(512, 1, 1);
         reduce_rows_f32</*norm=*/true><<<block_nums, block_dims, 0, stream>>>(src0_d, dst_d, ncols);
