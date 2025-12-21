@@ -46,6 +46,8 @@ graph TD
 
 The server context maintains a single batch shared across all slots. When `update_slots()` is invoked, the system iterates through all active slots to populate this batch. For each slot, either a generated token from the previous decoding step or available prompt tokens are added to the batch.
 
+Prompt preprocessing progress updates are streamed via the ggml scheduler eval callback (registered on the server context) while the prompt graph is executed. The throttled `send_partial_response(slot, {}, true)` runs only while a slot remains in `SLOT_STATE_PROCESSING_PROMPT` and the task is streaming.
+
 Batching constraints apply: slots can only be batched together if they share compatible configurations. For instance, slots using a specific LoRA adapter can be batched with each other, but not with slots using a different LoRA adapter or no adapter at all.
 
 Once the batch reaches capacity or all slots have been processed, `llama_decode` is called to execute the inference. This operation represents the primary computational bottleneck in `update_slots()`.

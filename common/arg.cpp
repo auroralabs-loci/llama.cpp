@@ -1157,6 +1157,16 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_CACHE_RAM").set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
+        {"--prompt-progress-ms"}, "MS",
+        string_format("interval in milliseconds for prompt processing progress updates (default: %d, 0 = disabled)", params.prompt_progress_ms),
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("prompt progress interval must be non-negative");
+            }
+            params.prompt_progress_ms = value;
+        }
+    ).set_env("LLAMA_ARG_PROMPT_PROGRESS_MS").set_examples({LLAMA_EXAMPLE_SERVER}));
+    add_opt(common_arg(
         {"-kvu", "--kv-unified"},
         "use single unified KV buffer shared across all sequences (default: enabled if number of slots is auto)",
         [](common_params & params) {

@@ -163,6 +163,7 @@ struct server_slot {
 
     int64_t t_start_process_prompt;
     int64_t t_start_generation;
+    int64_t t_last_prompt_progress_us = 0;
 
     double t_prompt_processing; // ms
     double t_token_generation;  // ms
@@ -185,6 +186,8 @@ struct server_slot {
         stop           = STOP_TYPE_NONE;
         stopping_word  = "";
         n_sent_text    = 0;
+
+        t_last_prompt_progress_us = 0;
 
         drafted.clear();
         i_batch_dft.clear();
@@ -610,6 +613,40 @@ struct server_context_impl {
         SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
         params_base = params;
+
+        // hook prompt progress reporting into the graph scheduler
+        params_base.cb_eval = [](ggml_tensor *, bool ask, void * user_data) -> bool {
+            auto * server_ctx = static_cast<server_context_impl *>(user_data);
+            if (ask || server_ctx == nullptr) {
+                return true;
+            }
+
+            const int32_t interval_ms = server_ctx->params_base.prompt_progress_ms;
+            if (interval_ms <= 0) {
+                return true;
+            }
+
+            const int64_t now_us      = ggml_time_us();
+            const int64_t interval_us = static_cast<int64_t>(interval_ms) * 1000;
+
+            for (auto & slot : server_ctx->slots) {
+                if (slot.state != SLOT_STATE_PROCESSING_PROMPT && slot.state != SLOT_STATE_DONE_PROMPT) {
+                    continue;
+                }
+
+                if (!slot.task || !slot.task->params.stream) {
+                    continue;
+                }
+
+                if (now_us - slot.t_last_prompt_progress_us >= interval_us) {
+                    server_ctx->send_partial_response(slot, {}, true);
+                    slot.t_last_prompt_progress_us = now_us;
+                }
+            }
+
+            return true;
+        };
+        params_base.cb_eval_user_data = this;
 
         llama_init = common_init_from_params(params_base);
 
@@ -2041,6 +2078,10 @@ struct server_context_impl {
                     if (slot.state == SLOT_STATE_STARTED) {
                         slot.t_start_process_prompt = ggml_time_us();
                         slot.t_start_generation = 0;
+                        slot.t_last_prompt_progress_us = slot.t_start_process_prompt;
+                        if (params_base.prompt_progress_ms > 0) {
+                            slot.t_last_prompt_progress_us -= static_cast<int64_t>(params_base.prompt_progress_ms) * 1000;
+                        }
 
                         slot.state = SLOT_STATE_PROCESSING_PROMPT;
 
