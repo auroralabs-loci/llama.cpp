@@ -181,7 +181,7 @@ static void llama_params_fit_impl(
         }
     }
 
-    int64_t sum_total           = 0;
+    int64_t sum_free            = 0;
     int64_t sum_projected_free  = 0;
     int64_t min_projected_free  = INT64_MAX;
     int64_t sum_projected_used  = 0;
@@ -197,7 +197,7 @@ static void llama_params_fit_impl(
         const int64_t projected_used = dmd.mb.total();
         const int64_t projected_free = dmd.free - projected_used;
 
-        sum_total           += dmd.total;
+        sum_free            += dmd.free;
         sum_projected_used  += projected_used;
         sum_projected_free  += projected_free;
         min_projected_free   = std::min(min_projected_free, projected_free);
@@ -210,10 +210,10 @@ static void llama_params_fit_impl(
                 projected_free >= 0 ? "surplus" : "deficit");
         }
     }
-    assert(sum_total >= 0 && sum_projected_used >= 0 && sum_projected_ctx >= 0);
+    assert(sum_free >= 0 && sum_projected_used >= 0 && sum_projected_ctx >= 0);
     assert(sum_projected_used >= sum_projected_ctx);
     LLAMA_LOG_INFO("%s: projected to use %" PRId64 " MiB of device memory vs. %" PRId64 " MiB of free device memory\n",
-        __func__, sum_projected_used/MiB, sum_total/MiB);
+        __func__, sum_projected_used/MiB, sum_free/MiB);
     if (min_projected_free >= margin) {
         if (nd == 1) {
             LLAMA_LOG_INFO("%s: will leave %" PRId64 " >= %" PRId64 " MiB of free device memory, no changes needed\n",
