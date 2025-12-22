@@ -2583,12 +2583,11 @@ static constexpr uint32_t flash_attention_num_small_rows = 32;
 static constexpr uint32_t scalar_flash_attention_num_small_rows = 1;
 
 static uint32_t get_fa_scalar_num_large_rows(uint32_t hsk, uint32_t hsv) {
+    GGML_UNUSED(hsk);
     if (hsv >= 192) {
         return 2;
-    } else if ((hsv | hsk) & 8) {
-        return 4;
     } else {
-        return 8;
+        return 4;
     }
 }
 
