@@ -13716,6 +13716,7 @@ static void ggml_vk_graph_optimize(ggml_backend_t backend, struct ggml_cgraph * 
 }
 
 static void ggml_backend_vk_event_record(ggml_backend_t backend, ggml_backend_event_t event) {
+    VK_LOG_DEBUG("ggml_backend_vk_event_record(backend=" << backend << ", event=" << event << ")");
     ggml_backend_vk_context * ctx = (ggml_backend_vk_context *)backend->context;
     vk_event *vkev = (vk_event *)event->context;
 
@@ -13745,6 +13746,7 @@ static void ggml_backend_vk_event_record(ggml_backend_t backend, ggml_backend_ev
 }
 
 static void ggml_backend_vk_event_wait(ggml_backend_t backend, ggml_backend_event_t event) {
+    VK_LOG_DEBUG("ggml_backend_vk_event_wait(backend=" << backend << ", event=" << event << ")");
     ggml_backend_vk_context * ctx = (ggml_backend_vk_context *)backend->context;
     vk_event *vkev = (vk_event *)event->context;
 
@@ -13760,6 +13762,8 @@ static void ggml_backend_vk_event_wait(ggml_backend_t backend, ggml_backend_even
     }
 
     ggml_vk_wait_events(transfer_ctx, {vkev->event});
+    ggml_vk_ctx_end(transfer_ctx);
+    ctx->transfer_ctx.reset();
 }
 
 // TODO: enable async and synchronize
@@ -14519,6 +14523,7 @@ static void ggml_backend_vk_device_event_free(ggml_backend_dev_t dev, ggml_backe
 }
 
 static void ggml_backend_vk_device_event_synchronize(ggml_backend_dev_t dev, ggml_backend_event_t event) {
+    VK_LOG_DEBUG("ggml_backend_vk_device_event_synchronize(backend=" << dev << ", event=" << event << ")");
     ggml_backend_vk_device_context * ctx = (ggml_backend_vk_device_context *)dev->context;
     auto device = ggml_vk_get_device(ctx->device);
     vk_event *vkev = (vk_event *)event->context;
