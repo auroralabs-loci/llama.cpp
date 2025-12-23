@@ -430,10 +430,18 @@ if (MSVC)
     configure_msvc_target(ggml-cpu-x64)
     configure_msvc_target(ggml-cpu-sse42)
     configure_msvc_target(ggml-cpu-sandybridge)
+    # __FMA__ and __F16C__ are not defined in MSVC, however they are implied with AVX2/AVX512
+    # skipping            ggml-cpu-ivybridge
+    # skipping            ggml-cpu-piledriver
     configure_msvc_target(ggml-cpu-haswell)
     configure_msvc_target(ggml-cpu-skylakex)
+    configure_msvc_target(ggml-cpu-cascadelake)
+    configure_msvc_target(ggml-cpu-cooperlake)
     configure_msvc_target(ggml-cpu-icelake)
+    configure_msvc_target(ggml-cpu-zen4)
     configure_msvc_target(ggml-cpu-alderlake)
+    # MSVC doesn't support AMX
+    # skipping            ggml-cpu-sapphirerapids
 
     if (GGML_BUILD_EXAMPLES)
         configure_msvc_target(common-ggml)
