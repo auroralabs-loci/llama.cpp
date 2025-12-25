@@ -1,0 +1,254 @@
+// GPT-OSS tool call format
+// Uses channel-based messaging with special tokens:
+// - <|channel|>analysis, <|channel|>commentary, <|channel|>final
+// - <|message|>...content...<|end|>
+// - <|start|>assistant
+// Tool calls format:
+// - In role: to=functions.name<|channel|>analysis|commentary<|message|>{...}
+// - In channel: <|channel|>analysis|commentary to=functions.name<|message|>{...}
+
+#include "chat-parsers-internal.h"
+
+common_chat_params common_chat_params_init_gpt_oss_peg(const common_chat_template & tmpl, const struct templates_params & inputs) {
+    common_chat_params data;
+
+    // Copy reasoning to the "thinking" field as expected by the gpt-oss template
+    auto adjusted_messages = json::array();
+    for (const auto & msg : inputs.messages) {
+        auto has_reasoning_content = msg.contains("reasoning_content") && msg.at("reasoning_content").is_string();
+        auto has_tool_calls = msg.contains("tool_calls") && msg.at("tool_calls").is_array();
+
+        if (has_reasoning_content && has_tool_calls) {
+            auto adjusted_message = msg;
+            adjusted_message["thinking"] = msg.at("reasoning_content");
+            adjusted_messages.push_back(adjusted_message);
+        } else {
+            adjusted_messages.push_back(msg);
+        }
+    }
+
+    auto prompt = apply(tmpl, inputs, /* messages_override= */ adjusted_messages);
+
+    // Check if we need to replace the return token with end token during
+    // inference and without generation prompt. For more details see:
+    // https://github.com/ggml-org/llama.cpp/issues/15417
+    if (inputs.is_inference && !inputs.add_generation_prompt) {
+        static constexpr std::string_view return_token = "<|return|>";
+        static constexpr std::string_view end_token    = "<|end|>";
+        if (size_t pos = prompt.rfind(return_token); pos != std::string::npos) {
+            prompt.replace(pos, return_token.length(), end_token);
+        }
+    }
+
+    data.prompt = prompt;
+    data.format = COMMON_CHAT_FORMAT_GPT_OSS;
+
+    // These special tokens are required to parse properly, so we include them
+    // even if parse_tool_calls is false.
+    data.preserved_tokens = {
+        "<|channel|>",
+        "<|constrain|>",
+        "<|message|>",
+        "<|start|>",
+        "<|end|>",
+    };
+
+    auto has_tools = inputs.tools.is_array() && !inputs.tools.empty();
+    auto extract_reasoning = inputs.reasoning_format != COMMON_REASONING_FORMAT_NONE;
+
+    // Build PEG parser for GPT-OSS format
+    auto parser = build_chat_peg_parser([&](auto & p) {
+        using Tag = common_chat_peg_tag;
+
+        auto assistant_prefix = [&]() {
+            return p.optional(p.literal("<|start|>") + "assistant");
+        };
+
+        auto commentary_content = p.rule("gpt-oss-commentary",
+            assistant_prefix()
+            + p.literal("<|channel|>") + "commentary"
+            + p.literal("<|message|>")
+            + p.tag(Tag::CONTENT, p.until("<|end|>"))
+            + p.literal("<|end|>")
+        );
+
+        auto final_content = p.rule("gpt-oss-final",
+            assistant_prefix()
+            + p.literal("<|channel|>") + "final"
+            + p.optional(p.literal(" ") + p.literal("<|constrain|>") + p.until("<|message|>"))
+            + p.literal("<|message|>")
+            + p.tag(Tag::CONTENT, p.until("<|end|>"))
+            + p.literal("<|end|>")
+        );
+
+        auto reasoning_block = p.eps();
+        if (extract_reasoning) {
+            reasoning_block = p.optional(p.tag(Tag::REASONING,
+                p.literal("<|channel|>") + "analysis" + p.literal("<|message|>") + p.until("<|end|>")) + p.literal("<|end|>")
+                + assistant_prefix()
+            );
+        }
+
+        // Response format parser (with JSON schema constraint)
+        if (inputs.json_schema.is_object() && !inputs.json_schema.empty()) {
+            // Final channel with JSON content
+            return reasoning_block << p.optional(p.literal("<|channel|>") + "final") << p.optional(p.space())
+                << p.optional(p.literal("<|constrain|>") + p.until("<|message|>"))
+                << p.literal("<|message|>")
+                << p.tag(Tag::CONTENT, p.schema(p.json(), "response-format", inputs.json_schema));
+        }
+
+        // Tool call parser
+        if (has_tools && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE) {
+            auto tool_choice = p.choice();
+
+            foreach_function(inputs.tools, [&](const json & tool) {
+                const auto & function = tool.at("function");
+                std::string name = function.at("name");
+                auto parameters = function.at("parameters");
+
+                // Tool call in channel: <|channel|>analysis|commentary to=functions.name<|message|>{...}
+                tool_choice |= p.rule("tool-channel-" + name, p.tag(Tag::TOOL,
+                    assistant_prefix()
+                    + p.atomic_tag(Tag::TOOL_OPEN, p.literal("<|channel|>"))
+                    + (p.literal("analysis") | "commentary")
+                    + " to=functions." + p.literal_tag(Tag::TOOL_NAME, name)
+                    + p.optional(" " + p.literal("<|constrain|>") + "json")
+                    + p.literal("<|message|>")
+                    + p.tag(Tag::TOOL_ARGS, p.schema(p.json(), "tool-" + name + "-params", parameters))
+                ));
+
+                // Tool call in role: to=functions.name<|channel|>analysis|commentary<|message|>{...}
+                tool_choice |= p.rule("tool-role-" + name, p.tag(Tag::TOOL,
+                    assistant_prefix()
+                    + p.literal_tag(Tag::TOOL_OPEN, " to=functions.")
+                    + p.literal_tag(Tag::TOOL_NAME, name)
+                    + p.literal("<|channel|>")
+                    + (p.literal("analysis") | "commentary")
+                    + p.optional(" " + p.literal("<|constrain|>") + "json")
+                    + p.literal("<|message|>")
+                    + p.tag(Tag::TOOL_ARGS, p.schema(p.json(), "tool-" + name + "-params", parameters))
+                ));
+            });
+
+            auto min_calls = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_REQUIRED ? 1 : 0;
+            auto max_calls = inputs.parallel_tool_calls ? -1 : 1;
+            auto tool_calls = p.trigger_rule("tool-call-root", p.repeat(tool_choice, min_calls, max_calls));
+
+            auto pre_tool_content = p.repeat(commentary_content, 0, -1);
+
+            return reasoning_block << pre_tool_content << tool_calls;
+        }
+
+        // Content only parser with optional reasoning
+        auto content_sequence = p.sequence();
+        content_sequence += p.repeat(commentary_content, 0, -1);
+        content_sequence += p.choice({final_content, commentary_content});
+
+        return reasoning_block << content_sequence;
+    });
+
+    data.parser = parser.save();
+
+    if (!inputs.json_schema.is_null()) {
+        data.grammar_lazy = false;
+        data.grammar = build_grammar([&](const common_grammar_builder & builder) {
+            auto schema = inputs.json_schema;
+            builder.resolve_refs(schema);
+
+            auto not_end = builder.add_rule("not-end",
+                "[^<] | \"<\" [^|] | \"<|\" [^e] | \"<|e\" [^n] | \"<|en\" [^d] | \"<|end\" [^|] | \"<|end|\" [^>]");
+            auto analysis = builder.add_rule("analysis",
+                "\"<|channel|>analysis<|message|>\" ( " + not_end + " )* \"<|end|>\"");
+            auto constraint = builder.add_rule("constraint", "\"<|constrain|>\"? [a-zA-Z0-9_-]+");
+            auto final = builder.add_rule("final",
+                "\"<|channel|>final\" ( \" \" " + constraint + " )? \"<|message|>\" " +
+                builder.add_schema("response", schema)
+            );
+
+            builder.add_rule("root", "( " + analysis + " \"<|start|>assistant\" )? " + final);
+        });
+    }
+
+    if (has_tools) {
+        data.grammar_lazy = inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_REQUIRED;
+        data.grammar = build_grammar([&](const common_grammar_builder & builder) {
+            // tool calls can appear in commentary or analysis channels
+            auto channel = builder.add_rule("channel", "\"<|channel|>\" ( \"commentary\" | \"analysis\" )");
+
+            std::vector<std::string> tool_rules_recipient_in_role;
+            std::vector<std::string> tool_rules_recipient_in_channel;
+            foreach_function(inputs.tools, [&](const json & tool) {
+                const auto & function = tool.at("function");
+                std::string name = function.at("name");
+                auto parameters = function.at("parameters");
+                builder.resolve_refs(parameters);
+
+                tool_rules_recipient_in_role.push_back(
+                    builder.add_rule(name + "-call",
+                        "\"" + name + "\"" + channel + " \" <|constrain|>json\"? \"<|message|>\" " +
+                        builder.add_schema(name + "-args", parameters)
+                    )
+                );
+
+                tool_rules_recipient_in_channel.push_back(
+                    builder.add_rule(name + "-call",
+                        "\"" + name + "\"" + " \" <|constrain|>json\"? \"<|message|>\" " +
+                        builder.add_schema(name + "-args", parameters)
+                    )
+                );
+            });
+
+            auto recipient_in_channel = builder.add_rule("recipient_in_channel",
+                channel + " \" to=functions.\" ( " +
+                string_join(tool_rules_recipient_in_channel, " | ") + " )"
+            );
+
+            if (data.grammar_lazy) {
+                auto recipient_in_role = builder.add_rule("recipient_in_role",
+                    "\"<|start|>assistant\"? \" to=functions.\" ( " +
+                    string_join(tool_rules_recipient_in_role, " | ") + " )"
+                );
+
+                builder.add_rule("root", recipient_in_role + " | " + recipient_in_channel);
+            } else {
+                auto not_end = builder.add_rule("not-end",
+                    "[^<] | \"<\" [^|] | \"<|\" [^e] | \"<|e\" [^n] | \"<|en\" [^d] | \"<|end\" [^|] | \"<|end|\" [^>]");
+                auto analysis = builder.add_rule("analysis",
+                    "\"<|channel|>analysis<|message|>\" ( " + not_end + " )* \"<|end|>\"");
+                auto commentary = builder.add_rule("commentary",
+                    "\"<|channel|>commentary<|message|>\" ( " + not_end + " )* \"<|end|>\"");
+
+                auto recipient_in_role = builder.add_rule("recipient_in_role",
+                    "\" to=functions.\" ( " + string_join(tool_rules_recipient_in_role, " | ") + " )"
+                );
+
+                builder.add_rule("root",
+                    "( " + analysis + " \"<|start|>assistant\" )? " +
+                    "( " + commentary + " \"<|start|>assistant\" )? " +
+                    "( " + recipient_in_role + " | " + recipient_in_channel + " )"
+                );
+            }
+
+            // Trigger on tool calls that appear in the commentary channel
+            data.grammar_triggers.push_back({
+                COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN,
+                "<\\|channel\\|>(commentary|analysis) to"
+            });
+
+            // Trigger tool calls that appear in the role section, either at the
+            // start or in the middle.
+            data.grammar_triggers.push_back({
+                COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN_FULL,
+                "^ to"
+            });
+
+            data.grammar_triggers.push_back({
+                COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN,
+                "<\\|start\\|>assistant to"
+            });
+        });
+    }
+
+    return data;
+}

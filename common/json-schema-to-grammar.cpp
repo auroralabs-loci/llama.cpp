@@ -225,7 +225,7 @@ static void _build_min_max_int(int64_t min_value, int64_t max_value, std::string
     throw std::runtime_error("At least one of min_value or max_value must be set");
 }
 
-const std::string SPACE_RULE = "| \" \" | \"\\n\"{1,2} [ \\t]{0,20}";
+const std::string SPACE_RULE = "( \" \" | \"\\n\"{1,2} [ \\t]{0,20} )?";
 
 struct BuiltinRule {
     std::string content;
