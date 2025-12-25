@@ -11,10 +11,13 @@ import {
 	normalizeModelName,
 	filterByLeafNodeId,
 	findDescendantMessages,
-	findLeafNode
+	findLeafNode,
+	createToolResultContent
 } from '$lib/utils';
 import { SvelteMap } from 'svelte/reactivity';
 import { DEFAULT_CONTEXT } from '$lib/constants/default-context';
+import { conversationMcpStore } from '$lib/stores/conversation-mcp.svelte';
+import type { ApiChatCompletionTool } from '$lib/types/api';
 
 /**
  * chatStore - Active AI interaction and streaming state management
@@ -510,11 +513,15 @@ class ChatStore {
 
 		const abortController = this.getOrCreateAbortController(assistantMessage.convId);
 
+		// Collect MCP tools for this conversation
+		const mcpTools = await this.collectMcpTools(assistantMessage.convId);
+
 		await ChatService.sendMessage(
 			allMessages,
 			{
 				...this.getApiOptions(),
 				...(modelOverride ? { model: modelOverride } : {}),
+				tools: mcpTools,
 				onChunk: (chunk: string) => {
 					streamedContent += chunk;
 					this.setChatStreaming(assistantMessage.convId, streamedContent, assistantMessage.id);
@@ -582,6 +589,18 @@ class ChatStore {
 					await conversationsStore.updateCurrentNode(assistantMessage.id);
 
 					if (onComplete) await onComplete(streamedContent);
+
+					// Execute tool calls if present
+					if (toolCallContent || streamedToolCallContent) {
+						const finalToolCalls = toolCallContent || streamedToolCallContent;
+						await this.executeToolCalls(
+							finalToolCalls,
+							assistantMessage.convId,
+							assistantMessage.id
+						);
+						return; // executeToolCalls will handle loading state
+					}
+
 					this.setChatLoading(assistantMessage.convId, false);
 					this.clearChatStreaming(assistantMessage.convId);
 					this.clearProcessingState(assistantMessage.convId);
@@ -1457,6 +1476,170 @@ class ChatStore {
 		if (currentConfig.custom) apiOptions.custom = currentConfig.custom;
 
 		return apiOptions;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// MCP Tool Calling
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Collect MCP tools for a conversation and format them for the API
+	 * Uses mcp__{serverName}__{toolName} naming convention
+	 */
+	private async collectMcpTools(convId: string): Promise<ApiChatCompletionTool[] | undefined> {
+		try {
+			const toolsWithMetadata = await conversationMcpStore.getAllToolsForConversation(convId);
+			if (toolsWithMetadata.length === 0) {
+				return undefined;
+			}
+
+			return toolsWithMetadata.map(({ qualifiedName, tool }) => ({
+				type: 'function' as const,
+				function: {
+					name: qualifiedName,
+					description: tool.description,
+					parameters: tool.inputSchema as Record<string, unknown>
+				}
+			}));
+		} catch (error) {
+			console.error('Failed to collect MCP tools:', error);
+			return undefined;
+		}
+	}
+
+	/**
+	 * Execute tool calls returned by the LLM
+	 * Parses tool calls, executes via MCP, adds results as messages, and continues generation
+	 */
+	private async executeToolCalls(
+		toolCallsJson: string,
+		convId: string,
+		assistantMessageId: string
+	): Promise<void> {
+		let toolCalls: Array<{
+			id: string;
+			type: string;
+			function: { name: string; arguments: string };
+		}>;
+
+		try {
+			toolCalls = JSON.parse(toolCallsJson);
+		} catch (error) {
+			console.error('Failed to parse tool calls:', error);
+			return;
+		}
+
+		if (!toolCalls || toolCalls.length === 0) {
+			return;
+		}
+
+		// Execute each tool call and add result as a tool message
+		for (const toolCall of toolCalls) {
+			const { function: fn } = toolCall;
+			if (!fn?.name || !fn?.arguments) continue;
+
+			try {
+				const args = JSON.parse(fn.arguments);
+				const result = await conversationMcpStore.executeToolCall(fn.name, args);
+
+				// Add tool result as a new message with "tool" role
+				await this.addToolResultMessage(
+					convId,
+					assistantMessageId,
+					fn.name,
+					JSON.stringify(result)
+				);
+			} catch (error) {
+				console.error(`Failed to execute tool ${fn.name}:`, error);
+				// Add error as tool result
+				await this.addToolResultMessage(
+					convId,
+					assistantMessageId,
+					fn.name,
+					JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+				);
+			}
+		}
+
+		// Continue generation with tool results
+		await this.continueGenerationWithToolResults(convId);
+	}
+
+	/**
+	 * Add a tool result message to the conversation
+	 */
+	private async addToolResultMessage(
+		convId: string,
+		parentId: string,
+		toolName: string,
+		result: string
+	): Promise<void> {
+		const activeConv = conversationsStore.activeConversation;
+		if (!activeConv || activeConv.id !== convId) {
+			// Need to load the conversation first
+			const loaded = await conversationsStore.loadConversation(convId);
+			if (!loaded) {
+				console.error('Failed to load conversation for tool result');
+				return;
+			}
+		}
+
+		// Create a tool message (using user role for now, could be a new "tool" role)
+		const toolMessage = await DatabaseService.createMessageBranch(
+			{
+				convId,
+				type: 'text',
+				role: 'user', // Using user role for tool results (LLM understands this pattern)
+				content: createToolResultContent(toolName, result),
+				timestamp: Date.now(),
+				thinking: '',
+				toolCalls: '',
+				children: [],
+				extra: undefined
+			},
+			parentId
+		);
+
+		conversationsStore.addMessageToActive(toolMessage);
+	}
+
+	/**
+	 * Continue generation after tool calls are executed
+	 * Creates a new assistant message and streams completion
+	 */
+	private async continueGenerationWithToolResults(convId: string): Promise<void> {
+		const activeConv = conversationsStore.activeConversation;
+		if (!activeConv || activeConv.id !== convId) {
+			const loaded = await conversationsStore.loadConversation(convId);
+			if (!loaded) {
+				console.error('Failed to load conversation for tool continuation');
+				return;
+			}
+		}
+
+		const messages = conversationsStore.activeMessages;
+		const lastMessage = messages[messages.length - 1];
+
+		if (!lastMessage) {
+			console.error('No message to continue from');
+			return;
+		}
+
+		this.setChatLoading(convId, true);
+		this.clearChatStreaming(convId);
+
+		const assistantMessage = await this.createAssistantMessage(lastMessage.id);
+		if (!assistantMessage) {
+			console.error('Failed to create assistant message for tool continuation');
+			this.setChatLoading(convId, false);
+			return;
+		}
+
+		conversationsStore.addMessageToActive(assistantMessage);
+		await this.streamChatCompletion(
+			conversationsStore.activeMessages.slice(0, -1),
+			assistantMessage
+		);
 	}
 }
 

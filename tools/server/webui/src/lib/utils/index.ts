@@ -94,3 +94,13 @@ export { getLanguageFromFilename } from './syntax-highlight-language';
 
 // Text file utilities
 export { isTextFileByName, readFileAsText, isLikelyTextFile } from './text-files';
+
+// Tool result utilities
+export {
+	isToolResultContent,
+	isToolResultMessage,
+	parseToolResult,
+	formatMcpToolName,
+	createToolResultContent,
+	type ToolResultInfo
+} from './tool-results';

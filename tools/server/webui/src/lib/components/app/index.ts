@@ -8,6 +8,7 @@ export { default as ChatAttachmentsViewAll } from './chat/ChatAttachments/ChatAt
 
 export { default as ChatForm } from './chat/ChatForm/ChatForm.svelte';
 export { default as ChatFormActionFileAttachments } from './chat/ChatForm/ChatFormActions/ChatFormActionFileAttachments.svelte';
+export { default as ChatFormActionMcp } from './chat/ChatForm/ChatFormActions/ChatFormActionMcp.svelte';
 export { default as ChatFormActionRecord } from './chat/ChatForm/ChatFormActions/ChatFormActionRecord.svelte';
 export { default as ChatFormActions } from './chat/ChatForm/ChatFormActions/ChatFormActions.svelte';
 export { default as ChatFormActionSubmit } from './chat/ChatForm/ChatFormActions/ChatFormActionSubmit.svelte';
@@ -23,6 +24,8 @@ export { default as ChatMessageSystem } from './chat/ChatMessages/ChatMessageSys
 export { default as ChatMessageThinkingBlock } from './chat/ChatMessages/ChatMessageThinkingBlock.svelte';
 export { default as ChatMessages } from './chat/ChatMessages/ChatMessages.svelte';
 export { default as MessageBranchingControls } from './chat/ChatMessages/ChatMessageBranchingControls.svelte';
+export { default as ToolCallBlock } from './chat/ChatMessages/ToolCallBlock.svelte';
+export { default as ToolResultDisplay } from './chat/ChatMessages/ToolResultDisplay.svelte';
 
 export { default as ChatScreen } from './chat/ChatScreen/ChatScreen.svelte';
 export { default as ChatScreenHeader } from './chat/ChatScreen/ChatScreenHeader.svelte';

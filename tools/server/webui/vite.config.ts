@@ -156,7 +156,17 @@ export default defineConfig({
 		proxy: {
 			'/v1': 'http://localhost:8080',
 			'/props': 'http://localhost:8080',
-			'/models': 'http://localhost:8080'
+			'/models': 'http://localhost:8080',
+			// HTTP endpoints for MCP
+			'/mcp/servers': 'http://localhost:8080',
+			'/mcp/ws-port': 'http://localhost:8080',
+			// WebSocket endpoint for MCP (connects to port 8081)
+			'/mcp': {
+				target: 'http://localhost:8081',
+				ws: true,
+				// Don't rewrite the path - keep /mcp as-is
+				rewrite: (path) => path
+			}
 		},
 		headers: {
 			'Cross-Origin-Embedder-Policy': 'require-corp',

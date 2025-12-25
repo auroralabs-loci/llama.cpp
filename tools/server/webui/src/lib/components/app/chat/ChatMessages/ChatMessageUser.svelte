@@ -2,6 +2,7 @@
 	import { Card } from '$lib/components/ui/card';
 	import { ChatAttachmentsList, MarkdownContent } from '$lib/components/app';
 	import { config } from '$lib/stores/settings.svelte';
+	import { parseToolResult } from '$lib/utils';
 	import ChatMessageActions from './ChatMessageActions.svelte';
 	import ChatMessageEditForm from './ChatMessageEditForm.svelte';
 
@@ -66,6 +67,9 @@
 	let messageElement: HTMLElement | undefined = $state();
 	const currentConfig = config();
 
+	// Check if this is a tool result message
+	let toolResultInfo = $derived(() => parseToolResult(message.content));
+
 	$effect(() => {
 		if (!messageElement || !message.content.trim()) return;
 
@@ -114,6 +118,9 @@
 			{onEditedExtrasChange}
 			{onEditedUploadedFilesChange}
 		/>
+	{:else if toolResultInfo()}
+		<!-- Tool result messages are now shown inline with tool calls in ChatMessageAssistant -->
+		<!-- This empty block ensures they don't render as separate user messages -->
 	{:else}
 		{#if message.extra && message.extra.length > 0}
 			<div class="mb-2 max-w-[80%]">
@@ -122,6 +129,7 @@
 		{/if}
 
 		{#if message.content.trim()}
+			<!-- Normal user message -->
 			<Card
 				class="max-w-[80%] rounded-[1.125rem] border-none bg-primary px-3.75 py-1.5 text-primary-foreground data-[multiline]:py-2.5"
 				data-multiline={isMultiline ? '' : undefined}

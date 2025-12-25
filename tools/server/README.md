@@ -1679,6 +1679,77 @@ Apart from error types supported by OAI, we also have custom types that are spec
 }
 ```
 
+### MCP (Model Context Protocol) Support
+
+The server supports [MCP](https://modelcontextprotocol.io/) for integrating external tools via WebSocket. MCP enables models to interact with external services like file systems, databases, APIs, and more.
+
+#### MCP Configuration
+
+Create an MCP configuration file (JSON format):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+      "env": {}
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+#### MCP Configuration Location
+
+The server looks for MCP configuration in the following order:
+1. `--mcp-config` command-line argument
+2. `LLAMA_MCP_CONFIG` environment variable
+3. `~/.llama.cpp/mcp.json` (Linux/macOS)
+4. `%APPDATA%/llama.cpp/mcp.json` (Windows)
+
+#### MCP Usage
+
+```bash
+# Use default config location (~/.llama.cpp/mcp.json)
+./llama-server -m model.gguf
+
+# Or specify config path
+./llama-server -m model.gguf --mcp-config /path/to/mcp.json
+
+# Or use environment variable
+LLAMA_MCP_CONFIG=/path/to/mcp.json ./llama-server -m model.gguf
+```
+
+#### MCP WebSocket Port
+
+MCP uses WebSocket on HTTP port + 1 (default: 8081 when HTTP is on 8080). The frontend discovers the actual port via the `/mcp/ws-port` endpoint.
+
+#### MCP API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /mcp/servers` | List available MCP servers from configuration |
+| `GET /mcp/ws-port` | Get the WebSocket port number |
+| `WS /mcp?server=<name>` | WebSocket connection (on port+1) |
+
+#### MCP Protocol
+
+The MCP bridge implements JSON-RPC 2.0 over WebSocket. Key methods:
+- `initialize` - Establish MCP session
+- `tools/list` - List available tools
+- `tools/call` - Execute a tool
+- `resources/list` - List available resources
+- `resources/read` - Read a resource
+
+For more information about MCP, see the [Model Context Protocol documentation](https://modelcontextprotocol.io/).
+
 ### Legacy completion web UI
 
 A new chat-based UI has replaced the old completion-based since [this PR](https://github.com/ggml-org/llama.cpp/pull/10175). If you want to use the old completion, start the server with `--path ./tools/server/public_legacy`

@@ -30,6 +30,8 @@
 		onNavigateToSibling?: (siblingId: string) => void;
 		onRegenerateWithBranching?: (message: DatabaseMessage, modelOverride?: string) => void;
 		siblingInfo?: ChatMessageSiblingInfo | null;
+		/** Tool results for this message (tool name -> {result, timestamp}) */
+		toolResults?: Record<string, { result: string; timestamp: number }>;
 	}
 
 	let {
@@ -43,7 +45,8 @@
 		onEditUserMessagePreserveResponses,
 		onNavigateToSibling,
 		onRegenerateWithBranching,
-		siblingInfo = null
+		siblingInfo = null,
+		toolResults = {}
 	}: Props = $props();
 
 	let deletionInfo = $state<{
@@ -282,5 +285,6 @@
 		{siblingInfo}
 		{thinkingContent}
 		{toolCallContent}
+		{toolResults}
 	/>
 {/if}

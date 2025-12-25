@@ -3,7 +3,8 @@
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { conversationsStore, activeConversation } from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
-	import { getMessageSiblings } from '$lib/utils';
+	import { getMessageSiblings, isToolResultMessage, parseToolResult } from '$lib/utils';
+	import { SvelteSet } from 'svelte/reactivity';
 
 	interface Props {
 		class?: string;
@@ -37,15 +38,82 @@
 		}
 	});
 
+	// Tool result with timing info
+	interface ToolResultInfo {
+		result: string;
+		timestamp: number;
+	}
+
+	// Build a map of message ID -> tool results (for assistant messages with tool calls)
+	// Check both messages prop and allConversationMessages for completeness
+	let toolResultsMap = $derived.by(() => {
+		const map: Record<string, Record<string, ToolResultInfo>> = {};
+
+		// Check messages from props first (always available)
+		for (const msg of messages) {
+			if (isToolResultMessage(msg)) {
+				const parsed = parseToolResult(msg.content);
+				if (parsed && msg.parent) {
+					if (!map[msg.parent]) {
+						map[msg.parent] = {};
+					}
+					map[msg.parent][parsed.toolName] = {
+						result: parsed.result,
+						timestamp: msg.timestamp
+					};
+				}
+			}
+		}
+
+		// Also check allConversationMessages for any we might have missed
+		for (const msg of allConversationMessages) {
+			if (isToolResultMessage(msg)) {
+				const parsed = parseToolResult(msg.content);
+				if (parsed && msg.parent) {
+					if (!map[msg.parent]) {
+						map[msg.parent] = {};
+					}
+					map[msg.parent][parsed.toolName] = {
+						result: parsed.result,
+						timestamp: msg.timestamp
+					};
+				}
+			}
+		}
+
+		return map;
+	});
+
+	// Set of message IDs that are tool results (to hide them)
+	// Check both sources
+	let toolResultMessageIds = $derived.by(() => {
+		const ids = new SvelteSet<string>();
+		for (const msg of messages) {
+			if (isToolResultMessage(msg)) {
+				ids.add(msg.id);
+			}
+		}
+		for (const msg of allConversationMessages) {
+			if (isToolResultMessage(msg)) {
+				ids.add(msg.id);
+			}
+		}
+		return ids;
+	});
+
 	let displayMessages = $derived.by(() => {
 		if (!messages.length) {
 			return [];
 		}
 
 		// Filter out system messages if showSystemMessage is false
-		const filteredMessages = currentConfig.showSystemMessage
+		// Also filter out tool result messages (they're shown inline with tool calls)
+		let filteredMessages = currentConfig.showSystemMessage
 			? messages
 			: messages.filter((msg) => msg.type !== 'system');
+
+		// Hide tool result messages
+		filteredMessages = filteredMessages.filter((msg) => !toolResultMessageIds.has(msg.id));
 
 		return filteredMessages.map((message) => {
 			const siblingInfo = getMessageSiblings(allConversationMessages, message.id);
@@ -57,7 +125,8 @@
 					siblingIds: [message.id],
 					currentIndex: 0,
 					totalSiblings: 1
-				}
+				},
+				toolResults: toolResultsMap[message.id] || {}
 			};
 		});
 	});
@@ -126,11 +195,12 @@
 </script>
 
 <div class="flex h-full flex-col space-y-10 pt-16 md:pt-24 {className}" style="height: auto; ">
-	{#each displayMessages as { message, siblingInfo } (message.id)}
+	{#each displayMessages as { message, siblingInfo, toolResults } (message.id)}
 		<ChatMessage
 			class="mx-auto w-full max-w-[48rem]"
 			{message}
 			{siblingInfo}
+			{toolResults}
 			onDelete={handleDeleteMessage}
 			onNavigateToSibling={handleNavigateToSibling}
 			onEditWithBranching={handleEditWithBranching}

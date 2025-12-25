@@ -1,6 +1,8 @@
 #include "server-context.h"
 #include "server-http.h"
 #include "server-models.h"
+#include "server-ws.h"
+#include "server-mcp-bridge.h"
 
 #include "arg.h"
 #include "common.h"
@@ -115,6 +117,69 @@ int main(int argc, char ** argv, char ** envp) {
     }
 
     //
+    // WebSocket Server (for MCP support)
+    //
+
+    server_ws_context ctx_ws;
+    server_mcp_bridge mcp_bridge;
+
+    // Initialize WebSocket server with params (sets port to HTTP port + 1)
+    if (!ctx_ws.init(params)) {
+        LOG_ERR("%s: failed to initialize WebSocket server\n", __func__);
+        return 1;
+    }
+
+    // Helper function to get MCP config path
+    auto get_mcp_config_paths = [&params]() -> std::vector<std::string> {
+        std::vector<std::string> paths;
+
+        // First check if --mcp-config was provided
+        if (!params.mcp_config.empty()) {
+            paths.push_back(params.mcp_config);
+            return paths;
+        }
+
+        // First check environment variable
+        const char * env_path = std::getenv("LLAMA_MCP_CONFIG");
+        if (env_path != nullptr) {
+            paths.push_back(env_path);
+            return paths;
+        }
+
+        // Try platform-specific config directory
+        const char * home = std::getenv("HOME");
+        if (home != nullptr) {
+            paths.push_back(std::string(home) + "/.llama.cpp/mcp.json");
+        }
+
+#ifdef _WIN32
+        // Windows: also try %APPDATA%
+        const char * appdata = std::getenv("APPDATA");
+        if (appdata != nullptr) {
+            paths.push_back(std::string(appdata) + "/llama.cpp/mcp.json");
+        }
+#endif
+
+        // Fallback to current directory
+        paths.push_back("./mcp_config.json");
+        paths.push_back("./config/mcp.json");
+
+        return paths;
+    };
+
+    // Try to load MCP config from default locations
+    std::vector<std::string> config_paths = get_mcp_config_paths();
+    for (const auto & path : config_paths) {
+        if (mcp_bridge.load_config(path)) {
+            LOG_INF("%s: loaded MCP config from: %s\n", __func__, path.c_str());
+            break;
+        }
+    }
+
+    // WebSocket server will be started after HTTP server to get the actual port
+    LOG_INF("%s: MCP WebSocket support enabled\n", __func__);
+
+    //
     // Router
     //
 
@@ -196,17 +261,59 @@ int main(int argc, char ** argv, char ** envp) {
     ctx_http.get ("/slots",               ex_wrapper(routes.get_slots));
     ctx_http.post("/slots/:id_slot",      ex_wrapper(routes.post_slots));
 
+    // MCP servers
+    ctx_http.get ("/mcp/servers", [&mcp_bridge](const server_http_req &) {
+        json servers = json::array();
+        for (const auto & server_name : mcp_bridge.get_available_servers()) {
+            servers.push_back({
+                {"name", server_name}
+            });
+        }
+        json response = {
+            {"servers", servers}
+        };
+        auto res = std::make_unique<server_http_res>();
+        res->status = 200;
+        res->data = response.dump();
+        return res;
+    });
+
+    // MCP WebSocket port (exposes the actual port the WebSocket server is listening on)
+    ctx_http.get ("/mcp/ws-port", [&ctx_ws](const server_http_req &) {
+        json response = {
+            {"port", ctx_ws.get_actual_port()}
+        };
+        auto res = std::make_unique<server_http_res>();
+        res->status = 200;
+        res->data = response.dump();
+        return res;
+    });
+
     //
     // Start the server
     //
 
     std::function<void()> clean_up;
 
+    // Register WebSocket handlers
+    ctx_ws.on_open([&mcp_bridge](auto conn) {
+        mcp_bridge.on_connection_opened(conn);
+    });
+
+    ctx_ws.on_message([&mcp_bridge](auto conn, const std::string & msg) {
+        mcp_bridge.on_connection_message(conn, msg);
+    });
+
+    ctx_ws.on_close([&mcp_bridge](auto conn) {
+        mcp_bridge.on_connection_closed(conn);
+    });
+
     if (is_router_server) {
         LOG_INF("%s: starting router server, no model will be loaded in this process\n", __func__);
 
-        clean_up = [&models_routes]() {
+        clean_up = [&models_routes, &ctx_ws]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
+            ctx_ws.stop();
             if (models_routes.has_value()) {
                 models_routes->models.unload_all();
             }
@@ -220,14 +327,24 @@ int main(int argc, char ** argv, char ** envp) {
         }
         ctx_http.is_ready.store(true);
 
+        // Start WebSocket server (OS will assign an available port)
+        if (!ctx_ws.start()) {
+            clean_up();
+            LOG_ERR("%s: exiting due to WebSocket server error\n", __func__);
+            return 1;
+        }
+        LOG_INF("%s: WebSocket server started on port %d\n", __func__, ctx_ws.get_actual_port());
+
         shutdown_handler = [&](int) {
+            ctx_ws.stop();
             ctx_http.stop();
         };
 
     } else {
         // setup clean up function, to be called before exit
-        clean_up = [&ctx_http, &ctx_server]() {
+        clean_up = [&ctx_http, &ctx_ws, &ctx_server]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
+            ctx_ws.stop();
             ctx_http.stop();
             ctx_server.terminate();
             llama_backend_free();
@@ -239,6 +356,14 @@ int main(int argc, char ** argv, char ** envp) {
             LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
             return 1;
         }
+
+        // Start WebSocket server (OS will assign an available port)
+        if (!ctx_ws.start()) {
+            clean_up();
+            LOG_ERR("%s: exiting due to WebSocket server error\n", __func__);
+            return 1;
+        }
+        LOG_INF("%s: WebSocket server started on port %d\n", __func__, ctx_ws.get_actual_port());
 
         // load the model
         LOG_INF("%s: loading model\n", __func__);
@@ -259,6 +384,7 @@ int main(int argc, char ** argv, char ** envp) {
 
         shutdown_handler = [&](int) {
             // this will unblock start_loop()
+            ctx_ws.stop();
             ctx_server.terminate();
         };
     }

@@ -44,7 +44,7 @@
 	}
 </script>
 
-<div class="relative {className}">
+<div class="search-input-wrapper relative {className}">
 	<Search
 		class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform text-muted-foreground"
 	/>
@@ -71,3 +71,17 @@
 		</button>
 	{/if}
 </div>
+
+<style>
+	/* Hide browser's native search clear button to avoid duplicate with our custom one */
+	.search-input-wrapper :global(input[type='search']::-webkit-search-cancel-button) {
+		-webkit-appearance: none;
+		appearance: none;
+		display: none;
+	}
+
+	.search-input-wrapper :global(input[type='search']::-webkit-search-decoration) {
+		-webkit-appearance: none;
+		appearance: none;
+	}
+</style>

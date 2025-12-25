@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, beforeNavigate } from '$app/navigation';
 	import {
 		ChatForm,
 		ChatScreenHeader,
@@ -32,6 +32,8 @@
 	import { config } from '$lib/stores/settings.svelte';
 	import { serverLoading, serverError, serverStore, isRouterMode } from '$lib/stores/server.svelte';
 	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { mcpStore } from '$lib/stores/mcp.svelte';
+	import { conversationMcpStore } from '$lib/stores/conversation-mcp.svelte';
 	import { isFileTypeSupported, filterFilesByModalities } from '$lib/utils';
 	import { parseFilesToMessageExtras, processFilesToChatUploaded } from '$lib/utils/browser-only';
 	import { onMount } from 'svelte';
@@ -138,6 +140,108 @@
 		}
 
 		return false;
+	});
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// MCP Auto-Connect/Disconnect
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	// Track previous conversation to detect switches
+	let previousConversationId = $state<string | null>(null);
+	let currentConversationId = $derived(activeConversation()?.id ?? null);
+	// Flag to track when transitioning from start page to first conversation
+	// This prevents beforeNavigate from disconnecting during this transition
+	let isFirstConversationTransition = $state(false);
+
+	// Fetch available servers from backend
+	async function fetchAvailableServers(): Promise<string[]> {
+		try {
+			const response = await fetch('/mcp/servers');
+			if (!response.ok) {
+				console.warn('[MCP] Failed to fetch available servers');
+				return [];
+			}
+			const data = await response.json();
+			return data.servers.map((s: { name: string }) => s.name);
+		} catch (error) {
+			console.error('[MCP] Error fetching servers:', error);
+			return [];
+		}
+	}
+
+	// Connect to all enabled MCP servers for a conversation
+	async function connectEnabledMcpServers(convId: string): Promise<void> {
+		if (!convId) return;
+
+		// Fetch available servers from backend
+		const availableServers = await fetchAvailableServers();
+		if (availableServers.length === 0) {
+			console.log('[MCP] No servers configured');
+			return;
+		}
+
+		// Get disabled servers for this conversation
+		const disabledServers = conversationMcpStore.getDisabledServers(convId);
+
+		// Connect to servers that are not disabled
+		for (const serverName of availableServers) {
+			if (!disabledServers.has(serverName)) {
+				console.log(`[MCP] Auto-connecting to: ${serverName}`);
+				// Don't await - let connections happen in parallel
+				mcpStore.connect(serverName).catch((err) => {
+					console.error(`[MCP] Failed to auto-connect to ${serverName}:`, err);
+				});
+			}
+		}
+	}
+
+	// Disconnect all MCP servers when leaving a conversation
+	function disconnectAllMcpServers(): void {
+		console.log('[MCP] Auto-disconnecting all servers');
+		mcpStore.disconnectAll();
+	}
+
+	// Track conversation changes and manage connections
+	$effect(() => {
+		const convId = currentConversationId;
+
+		if (convId !== previousConversationId) {
+			// Check if transitioning from start page (null) to first conversation
+			const isFirstConversation = previousConversationId === null && convId !== null;
+
+			if (isFirstConversation) {
+				// Mark that we're transitioning - beforeNavigate should not disconnect
+				isFirstConversationTransition = true;
+			}
+
+			if (previousConversationId && !isFirstConversation) {
+				// Conversation changed - disconnect old (but not when transitioning from start page)
+				disconnectAllMcpServers();
+			}
+
+			if (convId) {
+				// Connect to enabled servers for this conversation (including on initial load)
+				connectEnabledMcpServers(convId);
+			}
+
+			previousConversationId = convId;
+		}
+	});
+
+	// Disconnect when navigating away from chat page (but preserve connections from start page to first conversation)
+	beforeNavigate(() => {
+		// Skip disconnect if transitioning from start page to first conversation
+		if (isFirstConversationTransition) {
+			isFirstConversationTransition = false;
+			return;
+		}
+
+		// Only disconnect if we had a previous conversation (not transitioning from start page)
+		// When previousConversationId is null, we're on the start page - don't disconnect
+		if (previousConversationId !== null) {
+			disconnectAllMcpServers();
+			previousConversationId = null;
+		}
 	});
 
 	async function handleDeleteConfirm() {

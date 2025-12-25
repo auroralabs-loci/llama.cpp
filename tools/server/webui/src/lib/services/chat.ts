@@ -89,7 +89,10 @@ export class ChatService {
 			custom,
 			timings_per_token,
 			// Config options
-			disableReasoningFormat
+			disableReasoningFormat,
+			// Tool calling
+			tools,
+			tool_choice
 		} = options;
 
 		const normalizedMessages: ApiChatMessageData[] = messages
@@ -123,6 +126,14 @@ export class ChatService {
 		// Include model in request if provided (required in ROUTER mode)
 		if (options.model) {
 			requestBody.model = options.model;
+		}
+
+		// Include tools if provided
+		if (tools && tools.length > 0) {
+			requestBody.tools = tools;
+		}
+		if (tool_choice !== undefined) {
+			requestBody.tool_choice = tool_choice;
 		}
 
 		requestBody.reasoning_format = disableReasoningFormat ? 'none' : 'auto';

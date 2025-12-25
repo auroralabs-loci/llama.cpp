@@ -284,6 +284,10 @@ static handle_model_result common_params_handle_model(
             model.path = common_docker_resolve_model(model.docker_repo);
             model.name = model.docker_repo; // set name for consistency
         } else if (!model.hf_repo.empty()) {
+            // use hf_repo as name if not already set
+            if (model.name.empty()) {
+                model.name = model.hf_repo;
+            }
             // short-hand to avoid specifying --hf-file -> default it to --model
             if (model.hf_file.empty()) {
                 if (model.path.empty()) {
@@ -291,7 +295,6 @@ static handle_model_result common_params_handle_model(
                     if (auto_detected.repo.empty() || auto_detected.ggufFile.empty()) {
                         exit(1); // built without CURL, error message already printed
                     }
-                    model.name    = model.hf_repo;      // repo name with tag
                     model.hf_repo = auto_detected.repo; // repo name without tag
                     model.hf_file = auto_detected.ggufFile;
                     if (!auto_detected.mmprojFile.empty()) {
@@ -2697,6 +2700,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.ssl_file_cert = value;
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_SSL_CERT_FILE"));
+    add_opt(common_arg(
+        {"--mcp-config"}, "FNAME",
+        "path to MCP server configuration JSON file",
+        [](common_params & params, const std::string & value) {
+            params.mcp_config = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MCP_CONFIG"));
     add_opt(common_arg(
         {"--chat-template-kwargs"}, "STRING",
         string_format("sets additional params for the json template parser"),

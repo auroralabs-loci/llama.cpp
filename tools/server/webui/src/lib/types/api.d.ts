@@ -179,6 +179,17 @@ export interface ApiLlamaCppServerProps {
 	webui_settings?: Record<string, string | number | boolean>;
 }
 
+export interface ApiChatCompletionFunctionDefinition {
+	name: string;
+	description?: string;
+	parameters?: Record<string, unknown>;
+}
+
+export interface ApiChatCompletionTool {
+	type: 'function';
+	function: ApiChatCompletionFunctionDefinition;
+}
+
 export interface ApiChatCompletionRequest {
 	messages: Array<{
 		role: ChatRole;
@@ -214,6 +225,9 @@ export interface ApiChatCompletionRequest {
 	// Custom parameters (JSON string)
 	custom?: Record<string, unknown>;
 	timings_per_token?: boolean;
+	// Tool calling
+	tools?: ApiChatCompletionTool[];
+	tool_choice?: 'auto' | 'required' | 'none' | { type: 'function'; name: string };
 }
 
 export interface ApiChatCompletionToolCallFunctionDelta {

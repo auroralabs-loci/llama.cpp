@@ -5,6 +5,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { FILE_TYPE_ICONS } from '$lib/constants/icons';
 	import { FileTypeCategory } from '$lib/enums';
+	import { ChatFormActionMcp } from '$lib/components/app';
 
 	interface Props {
 		class?: string;
@@ -34,6 +35,10 @@
 </script>
 
 <div class="flex items-center gap-1 {className}">
+	<!-- MCP Servers Button -->
+	<ChatFormActionMcp />
+
+	<!-- File Attachments Dropdown -->
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger name="Attach files" {disabled}>
 			<Tooltip.Root>

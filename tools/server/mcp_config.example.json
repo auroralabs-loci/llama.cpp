@@ -1,0 +1,45 @@
+{
+  "_comment": "Example MCP configuration for llama.cpp",
+  "_comment_windows": "On Windows, place this file in %APPDATA%\\llama.cpp\\mcp.json",
+  "_comment_macos": "On macOS/Linux, place this file in ~/.llama.cpp/mcp.json",
+  "_comment_env": "Or set the LLAMA_MCP_CONFIG environment variable to point to this file",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/allowed/path"
+      ]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "your-api-key-here"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "your-github-token-here"
+      }
+    },
+    "_comment_cwd_example": "Example: Run a custom MCP server script from a specific directory",
+    "my-script": {
+      "command": "python",
+      "args": ["server.py"],
+      "cwd": "/path/to/working/directory",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

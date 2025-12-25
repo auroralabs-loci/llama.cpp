@@ -485,6 +485,9 @@ struct common_params {
 
     std::map<std::string, std::string> default_template_kwargs;
 
+    // MCP config
+    std::string mcp_config = "";                                                                           // NOLINT
+
     // webui configs
     bool webui = true;
     std::string webui_config_json;

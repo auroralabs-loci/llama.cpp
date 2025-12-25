@@ -65,7 +65,7 @@ struct server_http_context {
 
     bool init(const common_params & params);
     bool start();
-    void stop() const;
+    void stop();
 
     // note: the handler should never throw exceptions
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;

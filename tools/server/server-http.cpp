@@ -302,9 +302,13 @@ bool server_http_context::start() {
     return true;
 }
 
-void server_http_context::stop() const {
+void server_http_context::stop() {
     if (pimpl->srv) {
         pimpl->srv->stop();
+    }
+    // Wait for server thread to finish
+    if (thread.joinable()) {
+        thread.join();
     }
 }
 
