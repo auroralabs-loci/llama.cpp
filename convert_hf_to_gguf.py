@@ -1932,7 +1932,12 @@ class MmprojModel(ModelBase):
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del bid, name, n_dims  # unused
         if ".patch_embd.weight" in new_name or ".patch_merger.weight" in new_name:
-            return gguf.GGMLQuantizationType.F16 if self.ftype == gguf.LlamaFileType.MOSTLY_F16 else gguf.GGMLQuantizationType.F32
+            if self.ftype == gguf.LlamaFileType.MOSTLY_F16:
+                return gguf.GGMLQuantizationType.F16
+            elif self.ftype == gguf.LlamaFileType.MOSTLY_BF16:
+                return gguf.GGMLQuantizationType.BF16
+            else:
+                return gguf.GGMLQuantizationType.F32
         return False
 
 
@@ -3503,7 +3508,7 @@ class QwenModel(TextModel):
         self._set_vocab_qwen()
 
 
-@ModelBase.register("Qwen2Model", "Qwen2ForCausalLM", "Qwen2AudioForConditionalGeneration", "KORMoForCausalLM")
+@ModelBase.register("Qwen2Model", "Qwen2ForCausalLM", "Qwen2AudioForConditionalGeneration", "KORMoForCausalLM", "AudioFlamingo3ForConditionalGeneration")
 class Qwen2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN2
 
@@ -9291,6 +9296,17 @@ class VoxtralWhisperEncoderModel(WhisperEncoderModel):
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.VOXTRAL)
         self.gguf_writer.add_audio_stack_factor(4) # == intermediate_size // hidden_size
 
+
+@ModelBase.register("AudioFlamingo3ForConditionalGeneration")
+class AudioFlamingo3WhisperEncoderModel(WhisperEncoderModel):
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.MUSIC_FLAMINGO)
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        if ".conv" in name and ".weight" in name:
+            return gguf.GGMLQuantizationType.BF16 # model was trained and inferences in BF16
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
 
 @ModelBase.register("FalconH1ForCausalLM")
 class FalconH1Model(Mamba2Model):
