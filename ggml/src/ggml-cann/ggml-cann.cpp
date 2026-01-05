@@ -47,26 +47,6 @@
 
 #define GGML_CANN_NAME "CANN"
 
-/**
- * @brief Handles CANN errors by printing an error message and aborting.
- *
- * @param stmt The statement that caused the error.
- * @param func The function in which the error occurred.
- * @param file The file in which the error occurred.
- * @param line The line number where the error occurred.
- * @param msg The error message.
- */
-[[noreturn]] void ggml_cann_error(const char * stmt, const char * func, const char * file, int line, const char * msg) {
-    int32_t id = -1;
-    aclrtGetDevice(&id);
-
-    GGML_LOG_ERROR("CANN error: %s\n", msg);
-    GGML_LOG_ERROR("  current device: %d, in function %s at %s:%d\n", id, func, file, line);
-    GGML_LOG_ERROR("  %s\n", stmt);
-    // abort with GGML_ASSERT to get a stack trace
-    GGML_ABORT("CANN error");
-}
-
 // Thread-local variable to record the current device of this thread.
 thread_local int g_current_cann_device = -1;
 

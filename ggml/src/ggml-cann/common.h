@@ -48,17 +48,6 @@
 #define GGML_CANN_MAX_STREAMS 8
 
 /**
- * @brief Handles CANN-related errors by printing an error message and
- *        terminating the program.
- * @param stmt The statement that caused the error.
- * @param func The function in which the error occurred.
- * @param file The file in which the error occurred.
- * @param line The line number at which the error occurred.
- * @param msg The error message.
- */
-[[noreturn]] void ggml_cann_error(const char * stmt, const char * func, const char * file, int line, const char * msg);
-
-/**
  * @brief Checks the result of a CANN function call and invokes the error
  *        handler if the call fails.
  * @param stmt The CANN function call to check.
