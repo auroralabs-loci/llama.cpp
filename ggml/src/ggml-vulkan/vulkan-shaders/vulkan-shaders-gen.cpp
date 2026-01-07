@@ -949,6 +949,8 @@ void process_shaders() {
 
     string_to_spv("count_experts", "count_experts.comp", merge_maps(base_dict, {{"A_TYPE", "uint"}, {"D_TYPE", "uint"}}));
 
+    string_to_spv("count_experts", "count_experts.comp", merge_maps(base_dict, {{"A_TYPE", "uint"}, {"D_TYPE", "uint"}}));
+
     for (std::string dim_str : {"", "_3d"}) {
         for (bool bda : {false, true}) {
             std::string bda_str = bda ? "_bda" : "";
