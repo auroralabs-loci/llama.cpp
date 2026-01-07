@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-set -e
+set -ex
 
 # Parse command line arguments
 CONVERTED_MODEL=""
 PROMPTS_FILE=""
-USE_POOLING=""
+POOLING=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -14,8 +14,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --pooling)
-            USE_POOLING="1"
-            shift
+            POOLING="$2"
+            shift 2
             ;;
         *)
             if [ -z "$CONVERTED_MODEL" ]; then
@@ -50,10 +50,5 @@ fi
 
 echo $CONVERTED_MODEL
 
-cmake --build ../../build --target llama-logits -j8
-# TODO: update logits.cpp to accept a --file/-f option for the prompt
-if [ -n "$USE_POOLING" ]; then
-    ../../build/bin/llama-logits -m "$CONVERTED_MODEL" -embd-mode -pooling "$PROMPT"
-else
-    ../../build/bin/llama-logits -m "$CONVERTED_MODEL" -embd-mode "$PROMPT"
-fi
+cmake --build ../../build --target llama-debug -j8
+../../build/bin/llama-debug -m "$CONVERTED_MODEL" --embedding $POOLING -p "$PROMPT" --save-logits
