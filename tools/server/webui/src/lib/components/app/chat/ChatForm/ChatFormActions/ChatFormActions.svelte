@@ -5,6 +5,8 @@
 		ChatFormActionFileAttachments,
 		ChatFormActionRecord,
 		ChatFormActionSubmit,
+		DialogMcpServersSettings,
+		McpSelector,
 		ModelsSelector
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums';
@@ -15,6 +17,7 @@
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages, usedModalities } from '$lib/stores/conversations.svelte';
 	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
+	import { parseMcpServerSettings } from '$lib/config/mcp';
 
 	interface Props {
 		canSend?: boolean;
@@ -27,6 +30,7 @@
 		onFileUpload?: (fileType?: FileTypeCategory) => void;
 		onMicClick?: () => void;
 		onStop?: () => void;
+		onSystemPromptClick?: () => void;
 	}
 
 	let {
@@ -39,7 +43,8 @@
 		uploadedFiles = [],
 		onFileUpload,
 		onMicClick,
-		onStop
+		onStop,
+		onSystemPromptClick
 	}: Props = $props();
 
 	let currentConfig = $derived(config());
@@ -161,25 +166,42 @@
 			}
 		}
 	});
+
+	let showMcpDialog = $state(false);
+
+	// MCP servers state (simplified - just need to check if any exist)
+	let mcpServers = $derived(parseMcpServerSettings(currentConfig.mcpServers));
+	let hasMcpServers = $derived(mcpServers.length > 0);
 </script>
 
 <div class="flex w-full items-center gap-3 {className}" style="container-type: inline-size">
-	<ChatFormActionFileAttachments
-		class="mr-auto"
-		{disabled}
-		{hasAudioModality}
-		{hasVisionModality}
-		{onFileUpload}
-	/>
+	<div class="mr-auto flex items-center gap-1.5">
+		<ChatFormActionFileAttachments
+			{disabled}
+			{hasAudioModality}
+			{hasVisionModality}
+			showMcpOption={!hasMcpServers}
+			onMcpClick={() => (showMcpDialog = true)}
+			{onFileUpload}
+			{onSystemPromptClick}
+		/>
 
-	<ModelsSelector
-		{disabled}
-		bind:this={selectorModelRef}
-		currentModel={conversationModel}
-		forceForegroundText={true}
-		useGlobalSelection={true}
-		onModelChange={handleModelChange}
-	/>
+		{#if hasMcpServers}
+			<McpSelector {disabled} onSettingsClick={() => (showMcpDialog = true)} />
+		{/if}
+	</div>
+
+	<div class="ml-auto flex items-center gap-1.5">
+		<ModelsSelector
+			class="max-w-[4rem]"
+			{disabled}
+			bind:this={selectorModelRef}
+			currentModel={conversationModel}
+			forceForegroundText={true}
+			useGlobalSelection={true}
+			onModelChange={handleModelChange}
+		/>
+	</div>
 
 	{#if isLoading}
 		<Button
@@ -202,3 +224,8 @@
 		/>
 	{/if}
 </div>
+
+<DialogMcpServersSettings
+	bind:open={showMcpDialog}
+	onOpenChange={(open) => (showMcpDialog = open)}
+/>
