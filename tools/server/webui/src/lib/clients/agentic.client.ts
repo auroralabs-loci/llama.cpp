@@ -562,12 +562,11 @@ export class AgenticClient {
 
 		const toolName = toolCall.function.name;
 		const toolArgs = toolCall.function.arguments;
-		// Base64 encode args to avoid conflicts with markdown/HTML parsing
-		const toolArgsBase64 = btoa(unescape(encodeURIComponent(toolArgs)));
 
 		let output = `\n\n<<<AGENTIC_TOOL_CALL_START>>>`;
 		output += `\n<<<TOOL_NAME:${toolName}>>>`;
-		output += `\n<<<TOOL_ARGS_BASE64:${toolArgsBase64}>>>`;
+		output += `\n<<<TOOL_ARGS_START>>>\n`;
+		output += toolArgs;
 		emit(output);
 	}
 
@@ -582,6 +581,7 @@ export class AgenticClient {
 		if (!emit) return;
 
 		let output = '';
+		output += `\n<<<TOOL_ARGS_END>>>`;
 		if (this.isBase64Image(result)) {
 			output += `\n![tool-result](${result.trim()})`;
 		} else {

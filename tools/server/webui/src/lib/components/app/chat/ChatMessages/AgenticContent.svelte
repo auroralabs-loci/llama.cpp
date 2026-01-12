@@ -13,18 +13,13 @@
 		SyntaxHighlightedCode
 	} from '$lib/components/app';
 	import { config } from '$lib/stores/settings.svelte';
-	import { agenticStreamingToolCall } from '$lib/stores/agentic.svelte';
 	import { Wrench, Loader2 } from '@lucide/svelte';
 	import { AgenticSectionType } from '$lib/enums';
 	import { AGENTIC_TAGS, AGENTIC_REGEX } from '$lib/constants/agentic';
 	import { formatJsonPretty } from '$lib/utils/formatters';
-	import { decodeBase64 } from '$lib/utils';
-	import type { ChatMessageToolCallTiming } from '$lib/types/chat';
 
 	interface Props {
 		content: string;
-		isStreaming?: boolean;
-		toolCallTimings?: ChatMessageToolCallTiming[];
 	}
 
 	interface AgenticSection {
@@ -35,17 +30,9 @@
 		toolResult?: string;
 	}
 
-	let { content, isStreaming = false, toolCallTimings = [] }: Props = $props();
+	let { content }: Props = $props();
 
 	const sections = $derived(parseAgenticContent(content));
-
-	// Get timing for a specific tool call by index (completed tool calls only)
-	function getToolCallTiming(toolCallIndex: number): ChatMessageToolCallTiming | undefined {
-		return toolCallTimings[toolCallIndex];
-	}
-
-	// Get streaming tool call from reactive store (not from content markers)
-	const streamingToolCall = $derived(isStreaming ? agenticStreamingToolCall() : null);
 
 	let expandedStates: Record<number, boolean> = $state({});
 
@@ -86,8 +73,7 @@
 			}
 
 			const toolName = match[1];
-			const toolArgsBase64 = match[2];
-			const toolArgs = decodeBase64(toolArgsBase64);
+			const toolArgs = match[2]; // Direct JSON
 			const toolResult = match[3].replace(/^\n+|\n+$/g, '');
 
 			sections.push({
@@ -119,9 +105,8 @@
 			}
 
 			const toolName = pendingMatch[1];
-			const toolArgsBase64 = pendingMatch[2];
-			const toolArgs = decodeBase64(toolArgsBase64);
-			// Capture streaming result content (everything after args marker)
+			const toolArgs = pendingMatch[2]; // Direct JSON
+			// Capture streaming result content (everything after TOOL_ARGS_END marker)
 			const streamingResult = (pendingMatch[3] || '').replace(/^\n+|\n+$/g, '');
 
 			sections.push({
@@ -140,8 +125,7 @@
 				}
 			}
 
-			const partialArgsBase64 = partialWithNameMatch[2] || '';
-			const partialArgs = decodeBase64(partialArgsBase64);
+			const partialArgs = partialWithNameMatch[2] || ''; // Direct JSON streaming
 
 			sections.push({
 				type: AgenticSectionType.TOOL_CALL_STREAMING,
@@ -201,25 +185,46 @@
 			<div class="agentic-text">
 				<MarkdownContent content={section.content} />
 			</div>
+		{:else if section.type === AgenticSectionType.TOOL_CALL_STREAMING}
+			<CollapsibleContentBlock
+				open={isExpanded(index, true)}
+				class="my-2"
+				icon={Loader2}
+				iconClass="h-4 w-4 animate-spin"
+				title={section.toolName || 'Tool call'}
+				subtitle="streaming..."
+				onToggle={() => toggleExpanded(index, true)}
+			>
+				<div class="pt-3">
+					<div class="my-3 flex items-center gap-2 text-xs text-muted-foreground">
+						<span>Arguments:</span>
+						<Loader2 class="h-3 w-3 animate-spin" />
+					</div>
+					{#if section.toolArgs}
+						<SyntaxHighlightedCode
+							code={formatJsonPretty(section.toolArgs)}
+							language="json"
+							maxHeight="20rem"
+							class="text-xs"
+						/>
+					{:else}
+						<div class="rounded bg-muted/30 p-2 text-xs text-muted-foreground italic">
+							Receiving arguments...
+						</div>
+					{/if}
+				</div>
+			</CollapsibleContentBlock>
 		{:else if section.type === AgenticSectionType.TOOL_CALL || section.type === AgenticSectionType.TOOL_CALL_PENDING}
 			{@const isPending = section.type === AgenticSectionType.TOOL_CALL_PENDING}
 			{@const toolIcon = isPending ? Loader2 : Wrench}
 			{@const toolIconClass = isPending ? 'h-4 w-4 animate-spin' : 'h-4 w-4'}
-			{@const toolCallIndex =
-				sections.slice(0, index + 1).filter((s) => s.type === AgenticSectionType.TOOL_CALL).length -
-				1}
-			{@const timing = !isPending ? getToolCallTiming(toolCallIndex) : undefined}
 			<CollapsibleContentBlock
 				open={isExpanded(index, isPending)}
 				class="my-2"
 				icon={toolIcon}
 				iconClass={toolIconClass}
 				title={section.toolName || ''}
-				subtitle={isPending
-					? 'executing...'
-					: timing
-						? `${(timing.duration_ms / 1000).toFixed(2)}s`
-						: undefined}
+				subtitle={isPending ? 'executing...' : undefined}
 				onToggle={() => toggleExpanded(index, isPending)}
 			>
 				{#if section.toolArgs && section.toolArgs !== '{}'}
@@ -255,37 +260,6 @@
 			</CollapsibleContentBlock>
 		{/if}
 	{/each}
-
-	{#if streamingToolCall}
-		<CollapsibleContentBlock
-			open={true}
-			class="my-2"
-			icon={Loader2}
-			iconClass="h-4 w-4 animate-spin"
-			title={streamingToolCall.name || 'Tool call'}
-			subtitle="streaming..."
-			onToggle={() => {}}
-		>
-			<div class="pt-3">
-				<div class="my-3 flex items-center gap-2 text-xs text-muted-foreground">
-					<span>Arguments:</span>
-					<Loader2 class="h-3 w-3 animate-spin" />
-				</div>
-				{#if streamingToolCall.arguments}
-					<SyntaxHighlightedCode
-						code={formatJsonPretty(streamingToolCall.arguments)}
-						language="json"
-						maxHeight="20rem"
-						class="text-xs"
-					/>
-				{:else}
-					<div class="rounded bg-muted/30 p-2 text-xs text-muted-foreground italic">
-						Receiving arguments...
-					</div>
-				{/if}
-			</div>
-		</CollapsibleContentBlock>
-	{/if}
 </div>
 
 <style>
