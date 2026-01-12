@@ -1,0 +1,260 @@
+name: Mirror Upstream PRs
+on:
+  schedule:
+    - cron: '30 * * * *'    # every hour at :30 (UTC) → ~30 mins after sync
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-prs
+  cancel-in-progress: true
+
+jobs:
+  sync-prs:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }} # use PAT for gh API calls against the mirror
+      UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
+      UPSTREAM_REMOTE: "upstream"
+      ORIGIN_BASE_BRANCH: "main"
+      UPSTREAM_BASELINE_TAG: "upstream-baseline"
+      MAX_UPSTREAM_PRS: '${{ vars.MIRROR_MAX_UPSTREAM_PRS }}' # maximum number of upstream PRs to mirror
+      UPSTREAM_PR_LOOKBACK_DAYS: '${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}' # consider PRs opened/updated in the last N days
+      CANCEL_UPSTREAM_WORKFLOWS: 'false'  # whether to cancel unexpected workflows on mirrored PR branches
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Resolve upstream default branch and its latest commit (baseline tag) 
+        id: resolver
+        shell: bash -euo pipefail {0}
+        run: |
+          echo "::group::Resolve ${UPSTREAM_BASELINE_TAG} tag and write to output"
+          if ! git rev-parse --verify --quiet ${UPSTREAM_BASELINE_TAG} >/dev/null; then
+            echo "> Tag ${UPSTREAM_BASELINE_TAG} not found yet (first run before Sync) → exit early"
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+            echo "::endgroup::"
+            exit 0
+          fi
+
+          base=$(git rev-parse ${UPSTREAM_BASELINE_TAG})
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "> ${UPSTREAM_BASELINE_TAG} tag exists at ${base}"
+          echo "::endgroup::"
+
+          def=$(gh api "repos/${UPSTREAM_REPO}" --jq .default_branch)
+          echo "def=${def}" >> "$GITHUB_OUTPUT"
+          echo "> Upstream default branch is ${def}"
+
+      - name: Guard ~ check if upstream moved since last sync
+        if: steps.resolver.outputs.base != ''
+        id: guard
+        shell: bash -euo pipefail {0}
+        run: |
+          def="${{ steps.resolver.outputs.def }}"
+          base=${{ steps.resolver.outputs.base }}
+
+          sha=$(gh api "repos/${UPSTREAM_REPO}/commits/${def}" --jq .sha)
+          echo "> Latest commit on ${UPSTREAM_REMOTE}/${def} is ${sha}. Tagged base is at: ${base}"
+
+          if [ "$sha" != "${base}" ]; then
+            echo "> Upstream moved since last sync, but Sync hasn’t rebuilt main yet. Do nothing now to avoid opening PRs against an outdated base."
+            echo "proceed=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "> Upstream is at the base commit, proceed with fetching PRs and mirroring them."
+            echo "proceed=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Refresh upstream and fetch only changed/new PR refs
+        if: steps.guard.outputs.proceed == 'yes'
+        id: refresh
+        shell: bash -euo pipefail {0}
+        run: |
+          echo "> Remove current upstream remote"
+          git remote remove ${UPSTREAM_REMOTE} 2>/dev/null || true
+          
+          echo "> Add upstream remote"
+          # upstream is assumed public — add unauthenticated upstream remote
+          git remote add ${UPSTREAM_REMOTE} "https://github.com/${UPSTREAM_REPO}.git"
+          
+          def="${{ steps.resolver.outputs.def }}"
+          base="${{ steps.resolver.outputs.base }}"
+
+          # only consider PRs opened or updated within the last N days
+          lookback_days="${{ env.UPSTREAM_PR_LOOKBACK_DAYS }}"
+          cutoff=$(date -u -d "${lookback_days} days ago" +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "> List upstream PRs targeting ${def} at base ${base} and updated/created since ${cutoff}."
+          gh api "repos/${UPSTREAM_REPO}/pulls?state=open&per_page=100" --paginate \
+            | jq --arg def "$def" --arg cutoff "$cutoff" --arg base "$base" -c '.[] | select(.base.ref == $def and .base.sha == $base and (.updated_at >= $cutoff or .created_at >= $cutoff)) | {n:.number, sha:.head.sha, title:.title, body:(.body // ""), owner:.head.repo.owner.login, head_ref:.head.ref, head_repo_full:.head.repo.full_name, head_repo_clone:.head.repo.clone_url, head_repo_private:.head.repo.private, updated_at:.updated_at, created_at:.created_at}' \
+            > all_upstream_pulls.ndjson
+
+          > all_pulls_to_sync.ndjson
+          while read -r line; do
+            [ -z "$line" ] && continue
+            num=$(jq -r .n    <<<"$line")
+            sha=$(jq -r .sha  <<<"$line")
+            owner=$(jq -r .owner <<<"$line")
+            upstream_branch=$(jq -r .head_ref <<<"$line")
+            origin_branch="${UPSTREAM_REMOTE}-PR${num}-branch_${owner}-${upstream_branch}"
+            
+            # compute origin_sha once and embed into the JSON line
+            origin_sha=$(git ls-remote --heads origin "refs/heads/${origin_branch}" | cut -f1 || true)
+            origin_sha=$(echo -n "${origin_sha}")
+            
+            echo "> Origin commit for branch ${origin_branch} is: ${origin_sha}. PR head commit is: ${sha}"
+
+            if [ -z "${origin_sha}" ] || [ "${origin_sha}" != "${sha}" ]; then
+              # include the mirror branch name so later steps don't need to recalculate it
+              jq --arg origin_sha "$origin_sha" --arg origin_branch "$origin_branch" '. + {origin_sha:$origin_sha, origin_branch:$origin_branch}' <<<"$line" >> all_pulls_to_sync.ndjson
+            fi
+          done < all_upstream_pulls.ndjson
+
+          if [ ! -s all_pulls_to_sync.ndjson ]; then
+            echo "> No new/updated upstream PRs to sync"
+            > selected_pulls_to_sync.ndjson
+            echo "prs_to_sync=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          jq -s 'sort_by(.updated_at) | reverse | .[:'"$MAX_UPSTREAM_PRS"']' all_pulls_to_sync.ndjson > all_pulls_to_sync.array.json
+          jq -c '.[]' all_pulls_to_sync.array.json > selected_pulls_to_sync.json
+
+          echo "::group::Fetch selected upstream PR refs"
+          while read -r line; do
+            num=$(jq -r .n <<<"$line")
+            echo "> fetching PR #${num}"
+            git fetch ${UPSTREAM_REMOTE} "refs/pull/${num}/head:refs/remotes/${UPSTREAM_REMOTE}/pr/${num}" 2>/dev/null || \
+            git fetch ${UPSTREAM_REMOTE} "$(jq -r .sha <<<"$line"):refs/remotes/${UPSTREAM_REMOTE}/pr/${num}" 2>/dev/null || true
+          done < selected_pulls_to_sync.json
+          echo "::endgroup::"
+
+          echo "prs_to_sync=yes" >> "$GITHUB_OUTPUT"
+          jq -c . selected_pulls_to_sync.json > selected_pulls_to_sync.ndjson
+          echo "> Selected upstream PRs to process (limited to ${MAX_UPSTREAM_PRS}): $(wc -l < selected_pulls_to_sync.ndjson)"
+
+
+      - name: Upsert mirror branches & PRs
+        if: steps.guard.outputs.proceed == 'yes' && steps.refresh.outputs.prs_to_sync == 'yes'
+        shell: bash -euo pipefail {0}
+        run: |
+          origin_base="${{ env.ORIGIN_BASE_BRANCH }}"
+          while read -r line; do
+            [ -z "$line" ] && continue
+            
+            num=$(jq -r .n                <<<"$line")
+            title=$(jq -r .title          <<<"$line")
+            owner=$(jq -r .owner          <<<"$line")
+            body=$(jq -r .body            <<<"$line")
+            upstream_branch=$(jq -r .head_ref  <<<"$line")            
+            
+            head_sha=$(jq -r .sha              <<<"$line")
+            head_clone=$(jq -r .head_repo_clone      <<<"$line")
+            head_repo_full=$(jq -r .head_repo_full   <<<"$line")
+            head_repo_private=$(jq -r .head_repo_private   <<<"$line")
+            
+            origin_sha=$(jq -r .origin_sha <<<"$line")
+            origin_branch=$(jq -r .origin_branch <<<"$line")
+
+            echo "::group::Ensure origin branch ${origin_branch} matches upstream PR #${num} (${head_sha})"
+            echo "> Upstream PR metadata: owner=${owner}, upstream_branch=${upstream_branch}, head_repo=${head_repo_full}, head_clone=${head_clone}, head_repo_private=${head_repo_private}"
+
+            if [ -z "${origin_sha}" ] || [ "${origin_sha}" != "${head_sha}" ]; then
+              echo "> Updating origin/${origin_branch} to ${head_sha}, was: ${origin_sha}"
+
+              if git show-ref --verify --quiet "refs/remotes/${UPSTREAM_REMOTE}/pr/${num}"; then
+                echo "> Upstream PR ref found; updating local branch from upstream PR ref"
+                git branch --no-track -f "${origin_branch}" "refs/remotes/${UPSTREAM_REMOTE}/pr/${num}"
+              else
+                echo "> Upstream PR ref not found; attempting direct fetch from fork or upstream by SHA"
+                git fetch ${UPSTREAM_ORIGIN} "refs/pull/${num}/head:refs/heads/${origin_branch}" || \
+                git fetch ${UPSTREAM_ORIGIN} "${head_sha}:refs/heads/${origin_branch}"
+              fi
+              git push origin "refs/heads/${origin_branch}:refs/heads/${origin_branch}" --force
+              # ensure local branch tracks origin/<branch>
+              git branch --set-upstream-to=origin/${origin_branch} ${origin_branch} >/dev/null 2>&1 || true
+            else
+              echo "> Branch ${origin_branch} already at ${head_sha} — no update"
+            fi
+            echo "::endgroup::"
+
+            # detect existing PR (match head + base)
+            existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName,baseRefName 2>/dev/null \
+              | jq -r --arg head "$origin_branch" --arg base "$origin_base" '.[] | select(.headRefName==$head and .baseRefName==$base) | .number' | head -n1 || true)
+            existing=$(echo -n "$existing" | tr -d '\r\n')
+            if [ -n "${existing}" ] && [ "${existing}" != "null" ]; then
+              echo "> Mirrored PR #${existing} already exists — branch tip ensured, skipping metadata edit"
+            else
+              echo "> Creating mirrored PR from ${origin_branch} -> ${origin_base}"
+              PR_BODY=$(printf 'Mirrored from %s#%s\n\n%s' "$UPSTREAM_REPO" "$num" "$body")
+              gh pr create --repo "$GITHUB_REPOSITORY" --head "${origin_branch}" --base "${origin_base}" \
+                --title "UPSTREAM PR #${num}: ${title}" \
+                --body "$PR_BODY"
+            fi
+          done < selected_pulls_to_sync.ndjson
+
+
+      - name: Close mirrored PRs that closed upstream
+        if: steps.guard.outputs.proceed == 'yes'
+        shell: bash -euo pipefail {0}
+        run: |
+            def="${{ steps.resolver.outputs.def }}"
+            echo "> Upstream default branch: ${def}"
+            gh api "repos/${UPSTREAM_REPO}/pulls?state=open&per_page=100" --paginate \
+              | jq --arg def "$def" -r '.[] | select(.base.ref == $def) | .number' | sort -u > open_upstream.txt
+
+            gh pr list --state open --json number,title,headRefName \
+                --jq '.[] | select(.title|startswith("UPSTREAM PR #")) | {n:.number, t:.title, h:.headRefName}' > locals.json
+
+            jq -c . locals.json | while read -r line; do
+                title=$(jq -r .t <<<"$line")
+                num_local=$(jq -r .n <<<"$line")
+                prnum=$(sed -n 's/^UPSTREAM PR #\([0-9]\+\):.*/\1/p' <<<"$title")
+                if ! grep -qx "$prnum" open_upstream.txt; then
+                    echo "> Closing local mirrored PR #${num_local} (upstream #${prnum} no longer open/targets ${def})"
+                    gh pr close "$num_local" --delete-branch
+                fi
+            done
+
+
+      - name: Wait for other workflows to start
+        run: sleep 15
+
+
+      - name: Cancel unexpected workflows on mirrored branch
+        if: env.CANCEL_UPSTREAM_WORKFLOWS == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+
+          while read -r line; do
+            [ -z "$line" ] && continue
+            origin_branch=$(jq -r .origin_branch <<<"$line")
+            gh run list --repo "$GITHUB_REPOSITORY" --branch "$origin_branch" --json databaseId,status,workflowDatabaseId | \
+              jq -r '.[] | select(.status == "in_progress" or .status == "queued") | "\(.databaseId) \(.workflowDatabaseId)"' | \
+              while read -r run_id workflow_id; do
+                path=$(gh api "/repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id" --jq '.path')
+
+                case "$path" in
+                  ".github/workflows/loci-analysis.yml" | \
+                  ".github/workflows/sync-upstream.yml" | \
+                  ".github/workflows/sync-upstream-prs.yml")
+                    # Skipped workflows
+                    ;;
+                  *)
+                    echo "> Canceling run $run_id (file: $path)"
+                    gh run cancel "$run_id" --repo "$GITHUB_REPOSITORY" >/dev/null  2>&1 || true
+                    ;;
+                esac
+              done
+          done < selected_pulls_to_sync.ndjson
+
+
