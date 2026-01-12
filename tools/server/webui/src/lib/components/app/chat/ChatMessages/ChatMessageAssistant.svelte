@@ -183,7 +183,7 @@
 		{#if showRawOutput}
 			<pre class="raw-output">{messageContent || ''}</pre>
 		{:else if isAgenticContent}
-			<AgenticContent content={messageContent || ''} />
+			<AgenticContent content={messageContent || ''} isStreaming={isChatStreaming()} />
 		{:else}
 			<MarkdownContent content={messageContent || ''} />
 		{/if}
