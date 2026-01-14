@@ -10,21 +10,11 @@
 	import { INPUT_CLASSES } from '$lib/constants/css-classes';
 	import { SETTING_CONFIG_DEFAULT } from '$lib/constants/settings-config';
 	import { config } from '$lib/stores/settings.svelte';
-	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
-	import {
-		FileTypeCategory,
-		MimeTypeApplication,
-		FileExtensionAudio,
-		FileExtensionImage,
-		FileExtensionPdf,
-		FileExtensionText,
-		MimeTypeAudio,
-		MimeTypeImage,
-		MimeTypeText
-	} from '$lib/enums';
+	import { MimeTypeText } from '$lib/enums';
 	import { isIMEComposing, parseClipboardContent } from '$lib/utils';
 	import {
 		AudioRecorder,
@@ -63,7 +53,6 @@
 	let audioRecorder: AudioRecorder | undefined;
 	let chatFormActionsRef: ChatFormActions | undefined = $state(undefined);
 	let currentConfig = $derived(config());
-	let fileAcceptString = $state<string | undefined>(undefined);
 	let fileInputRef: ChatFormFileInputInvisible | undefined = $state(undefined);
 	let isRecording = $state(false);
 	let message = $state('');
@@ -106,40 +95,6 @@
 		return null;
 	});
 
-	// State for model props reactivity
-	let modelPropsVersion = $state(0);
-
-	// Fetch model props when active model changes (works for both MODEL and ROUTER mode)
-	$effect(() => {
-		if (activeModelId) {
-			const cached = modelsStore.getModelProps(activeModelId);
-			if (!cached) {
-				modelsStore.fetchModelProps(activeModelId).then(() => {
-					modelPropsVersion++;
-				});
-			}
-		}
-	});
-
-	// Derive modalities from active model (works for both MODEL and ROUTER mode)
-	let hasAudioModality = $derived.by(() => {
-		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelsStore.modelSupportsAudio(activeModelId);
-		}
-
-		return false;
-	});
-
-	let hasVisionModality = $derived.by(() => {
-		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelsStore.modelSupportsVision(activeModelId);
-		}
-
-		return false;
-	});
-
 	function checkModelSelected(): boolean {
 		if (!hasModelSelected) {
 			// Open the model selector
@@ -150,42 +105,12 @@
 		return true;
 	}
 
-	function getAcceptStringForFileType(fileType: FileTypeCategory): string {
-		switch (fileType) {
-			case FileTypeCategory.IMAGE:
-				return [...Object.values(FileExtensionImage), ...Object.values(MimeTypeImage)].join(',');
-
-			case FileTypeCategory.AUDIO:
-				return [...Object.values(FileExtensionAudio), ...Object.values(MimeTypeAudio)].join(',');
-
-			case FileTypeCategory.PDF:
-				return [...Object.values(FileExtensionPdf), ...Object.values(MimeTypeApplication)].join(
-					','
-				);
-
-			case FileTypeCategory.TEXT:
-				return [...Object.values(FileExtensionText), MimeTypeText.PLAIN].join(',');
-
-			default:
-				return '';
-		}
-	}
-
 	function handleFileSelect(files: File[]) {
 		onFileUpload?.(files);
 	}
 
-	function handleFileUpload(fileType?: FileTypeCategory) {
-		if (fileType) {
-			fileAcceptString = getAcceptStringForFileType(fileType);
-		} else {
-			fileAcceptString = undefined;
-		}
-
-		// Use setTimeout to ensure the accept attribute is applied before opening dialog
-		setTimeout(() => {
-			fileInputRef?.click();
-		}, 10);
+	function handleFileUpload() {
+		fileInputRef?.click();
 	}
 
 	async function handleKeydown(event: KeyboardEvent) {
@@ -345,13 +270,7 @@
 	});
 </script>
 
-<ChatFormFileInputInvisible
-	bind:this={fileInputRef}
-	bind:accept={fileAcceptString}
-	{hasAudioModality}
-	{hasVisionModality}
-	onFileSelect={handleFileSelect}
-/>
+<ChatFormFileInputInvisible bind:this={fileInputRef} onFileSelect={handleFileSelect} />
 
 <form
 	onsubmit={handleSubmit}

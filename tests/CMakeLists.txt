@@ -202,15 +202,13 @@ llama_build_and_test(
 llama_build_and_test(test-regex-partial.cpp)
 
 if (NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "s390x")
-    llama_build_and_test(test-thread-safety.cpp ARGS -hf ggml-org/models -hff tinyllamas/stories15M-q4_0.gguf -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
+    llama_download_model("tinyllamas/stories15M-q4_0.gguf" SHA256=66967fbece6dbe97886593fdbb73589584927e29119ec31f08090732d1861739)
 else()
-    llama_build_and_test(test-thread-safety.cpp ARGS -hf ggml-org/models -hff tinyllamas/stories15M-be.Q4_0.gguf -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
+    llama_download_model("tinyllamas/stories15M-be.Q4_0.gguf" SHA256=9aec857937849d976f30397e97eb1cabb53eb9dcb1ce4611ba8247fb5f44c65d)
 endif()
+llama_build_and_test(test-thread-safety.cpp ARGS -m "${LLAMA_DOWNLOAD_MODEL}" -ngl 99 -p "The meaning of life is" -n 128 -c 256 -ub 32 -np 4 -t 2)
 
-# this fails on windows (github hosted runner) due to curl DLL not found (exit code 0xc0000135)
-if (NOT WIN32)
-    llama_build_and_test(test-arg-parser.cpp)
-endif()
+llama_build_and_test(test-arg-parser.cpp)
 
 if (NOT LLAMA_SANITIZE_ADDRESS AND NOT GGML_SCHED_NO_REALLOC)
   # TODO: repair known memory leaks
@@ -223,22 +221,9 @@ llama_build_and_test(test-model-load-cancel.cpp LABEL "model")
 llama_build_and_test(test-autorelease.cpp       LABEL "model")
 llama_build_and_test(test-backend-sampler.cpp   LABEL "model")
 
-llama_test(test-backend-sampler NAME test-backend-sampler-greedy       ARGS --test greedy)
-llama_test(test-backend-sampler NAME test-backend-sampler-temp         ARGS --test temp)
-llama_test(test-backend-sampler NAME test-backend-sampler-top_k        ARGS --test top_k)
-llama_test(test-backend-sampler NAME test-backend-sampler-dist         ARGS --test dist)
-llama_test(test-backend-sampler NAME test-backend-sampler-dist-and-cpu ARGS --test dist_and_cpu)
-llama_test(test-backend-sampler NAME test-backend-sampler-logit-bias   ARGS --test logit_bias)
-llama_test(test-backend-sampler NAME test-backend-sampler-mul_seq      ARGS --test multi_sequence)
-llama_test(test-backend-sampler NAME test-backend-sampler-set-sampler  ARGS --test set_sampler)
-
 # Test for state restore with fragmented KV cache
 # Requires a model, uses same args pattern as test-thread-safety
-if (NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "s390x")
-    llama_build_and_test(test-state-restore-fragmented.cpp LABEL "model" ARGS -hf ggml-org/models -hff tinyllamas/stories15M-q4_0.gguf)
-else()
-    llama_build_and_test(test-state-restore-fragmented.cpp LABEL "model" ARGS -hf ggml-org/models -hff tinyllamas/stories15M-be.Q4_0.gguf)
-endif()
+llama_build_and_test(test-state-restore-fragmented.cpp LABEL "model" ARGS -m "${LLAMA_DOWNLOAD_MODEL}")
 
 if (NOT GGML_BACKEND_DL)
     # these tests use the backends directly and cannot be built with dynamic loading

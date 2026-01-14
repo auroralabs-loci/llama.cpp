@@ -26,7 +26,7 @@
 		isRecording?: boolean;
 		hasText?: boolean;
 		uploadedFiles?: ChatUploadedFile[];
-		onFileUpload?: (fileType?: FileTypeCategory) => void;
+		onFileUpload?: () => void;
 		onMicClick?: () => void;
 		onStop?: () => void;
 		onSystemPromptClick?: () => void;

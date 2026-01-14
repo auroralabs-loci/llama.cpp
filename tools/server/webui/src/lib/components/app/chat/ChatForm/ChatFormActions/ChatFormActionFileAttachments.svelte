@@ -4,14 +4,13 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { FILE_TYPE_ICONS } from '$lib/constants/icons';
-	import { FileTypeCategory } from '$lib/enums';
 
 	interface Props {
 		class?: string;
 		disabled?: boolean;
 		hasAudioModality?: boolean;
 		hasVisionModality?: boolean;
-		onFileUpload?: (fileType?: FileTypeCategory) => void;
+		onFileUpload?: () => void;
 		onSystemPromptClick?: () => void;
 	}
 
@@ -24,11 +23,11 @@
 		onSystemPromptClick
 	}: Props = $props();
 
-	const fileUploadTooltipText = 'Add files or context';
-
-	function handleFileUpload(fileType?: FileTypeCategory) {
-		onFileUpload?.(fileType);
-	}
+	const fileUploadTooltipText = $derived.by(() => {
+		return !hasVisionModality
+			? 'Text files and PDFs supported. Images, audio, and video require vision models.'
+			: 'Attach files';
+	});
 </script>
 
 <div class="flex items-center gap-1 {className}">
@@ -59,7 +58,7 @@
 					<DropdownMenu.Item
 						class="images-button flex cursor-pointer items-center gap-2"
 						disabled={!hasVisionModality}
-						onclick={() => handleFileUpload(FileTypeCategory.IMAGE)}
+						onclick={() => onFileUpload?.()}
 					>
 						<FILE_TYPE_ICONS.image class="h-4 w-4" />
 
@@ -79,7 +78,7 @@
 					<DropdownMenu.Item
 						class="audio-button flex cursor-pointer items-center gap-2"
 						disabled={!hasAudioModality}
-						onclick={() => handleFileUpload(FileTypeCategory.AUDIO)}
+						onclick={() => onFileUpload?.()}
 					>
 						<FILE_TYPE_ICONS.audio class="h-4 w-4" />
 
@@ -96,7 +95,7 @@
 
 			<DropdownMenu.Item
 				class="flex cursor-pointer items-center gap-2"
-				onclick={() => handleFileUpload(FileTypeCategory.TEXT)}
+				onclick={() => onFileUpload?.()}
 			>
 				<FILE_TYPE_ICONS.text class="h-4 w-4" />
 
@@ -107,7 +106,7 @@
 				<Tooltip.Trigger class="w-full">
 					<DropdownMenu.Item
 						class="flex cursor-pointer items-center gap-2"
-						onclick={() => handleFileUpload(FileTypeCategory.PDF)}
+						onclick={() => onFileUpload?.()}
 					>
 						<FILE_TYPE_ICONS.pdf class="h-4 w-4" />
 
