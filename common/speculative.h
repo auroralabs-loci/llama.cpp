@@ -6,15 +6,17 @@
 struct common_speculative;
 
 struct common_speculative_params {
-    int n_draft = 16;  // max drafted tokens
-    int n_reuse = 256;
+    int n_draft         = 16;  // max drafted tokens
+    int n_reuse         = 256;
 
-    float p_min = 0.75f; // min probability required to accept a token in the draft
+    float p_min         = 0.75f; // min probability required to accept a token in the draft
 };
 
 struct common_speculative * common_speculative_init(
         struct llama_context * ctx_tgt,
-        struct llama_context * ctx_dft
+        struct llama_context * ctx_dft,
+        const uint16_t         self_mode = 0, // 0: off, 1: self speculative, 2: n-grams (keys) only, 3: n-grams/m-grams (key-values)
+        const std::vector<uint16_t> self_cfg = { 12, 48, 3, 1 } // ngram size, mgram size, check rate, min hits
 );
 
 void common_speculative_free(struct common_speculative * spec);
@@ -33,3 +35,11 @@ llama_tokens common_speculative_gen_draft(
         struct common_speculative_params   params,
                       const llama_tokens & prompt,
                              llama_token   id_last);
+
+// informs the speculative decoder that n_accepted tokens were accepted by the target model
+void common_speculative_send_accepted(
+        struct common_speculative * spec,
+        const uint16_t n_accepted);
+
+// print statistics about the speculative decoding
+void common_speculative_print_stats(const struct common_speculative * spec);
