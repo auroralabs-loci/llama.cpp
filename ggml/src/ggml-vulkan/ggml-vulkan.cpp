@@ -90,8 +90,10 @@ static bool is_pow2(uint32_t x) { return x > 1 && (x & (x-1)) == 0; }
 
 #define VK_VENDOR_ID_AMD 0x1002
 #define VK_VENDOR_ID_APPLE 0x106b
+#define VK_VENDOR_ID_ARM 0x13B5
 #define VK_VENDOR_ID_INTEL 0x8086
 #define VK_VENDOR_ID_NVIDIA 0x10de
+#define VK_VENDOR_ID_QUALCOMM 0x5143
 
 #define VK_DEVICE_DESCRIPTOR_POOL_SIZE 256
 
@@ -3059,6 +3061,11 @@ static void ggml_vk_load_shaders(vk_device& device) {
                 device->mul_mat_l[i] = false;
             }
 
+            if (device->vendor_id == VK_VENDOR_ID_ARM || device->vendor_id == VK_VENDOR_ID_QUALCOMM) {
+                device->mul_mat_l[i] = false;
+                device->mul_mat_id_l[i] = false;
+            }
+
             // Disable mul_mat_id if not enough shared memory is available
             if (!ggml_vk_matmul_shmem_support(device, s_warptile_mmqid, true, t)) {
                 device->mul_mat_id_s[i] = false;
@@ -4675,6 +4682,17 @@ static vk_device ggml_vk_get_device(size_t idx) {
         } else {
             // Limit batching of allocations to 1GB by default to avoid fragmentation issues
             device->suballocation_block_size = 1024*1024*1024;
+        }
+
+        if (device->vendor_id == VK_VENDOR_ID_ARM) {
+            // ARM Mali optimization: disable fp16-matrix to prevent crashes, limit memory blocks
+            device->coopmat_support = false;
+            device->suballocation_block_size = 256 * 1024 * 1024;
+        } else if (device->vendor_id == VK_VENDOR_ID_QUALCOMM) {
+            // Qualcomm Adreno optimization: disable fp16-matrix and int8-dotprod to prevent crashes, limit memory blocks
+            device->coopmat_support = false;
+            device->integer_dot_product = false;
+            device->suballocation_block_size = 256 * 1024 * 1024;
         }
         device->suballocation_block_size = std::min(device->suballocation_block_size, device->max_memory_allocation_size);
 
