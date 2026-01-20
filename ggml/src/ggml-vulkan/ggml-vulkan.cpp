@@ -3037,6 +3037,11 @@ static void ggml_vk_load_shaders(vk_device& device) {
             // Xe2/Xe3 with coopmat enabled - warptile performance tuning
             l_warptile = { 512, 128, 128, 16, subgroup_size_8, 32, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
             l_warptile_mmq = { 512, 128, 128, 32, subgroup_size_8, 32, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
+        } else if (device->vendor_id == VK_VENDOR_ID_ARM && device->subgroup_size >= 16) {
+            uint32_t wm = 32 / device->subgroup_size;
+            m_warptile_mmq = m_warptile_mmq_int = { 64, 64, 64, 16, 16, 32, wm, 2, 2, 1, device->subgroup_size };
+            m_warptile = { 64, 64, 64, 16, 16, 32, wm, 2, 2, 1, device->subgroup_size };
+            m_warptile_id = m_warptile_mmqid = { 64, 64, 64, 16, 16, 32, wm, 2, 2, 1, device->subgroup_size };
         }
 
         l_mmq_wg_denoms = l_wg_denoms = {128, 128, 1 };
