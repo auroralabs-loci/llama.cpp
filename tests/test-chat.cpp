@@ -917,8 +917,7 @@ class peg_test_builder {
                 return;
             }
         }
-        LOG_DBG("\n================================\nRunning test for template: %s\n================================\n",
-                tester_.template_path().c_str());
+        LOG_INF("\n\x1b[38;5;126m[%s]\x1b[0m\n%s\n\n", tester_.template_path().c_str(), tc_.input.c_str());
         test_peg_parser(tester_.tmpls_.get(), [this](peg_test_case & t) { t = tc_; }, tester_.detailed_debug_);
     }
 };
@@ -2177,7 +2176,6 @@ static void test_msg_diffs_compute() {
 }
 
 int main(int argc, char ** argv) {
-    common_log_set_verbosity_thold(999);
     bool detailed_debug    = false;
     bool only_run_filtered = false;
 
@@ -2191,6 +2189,7 @@ int main(int argc, char ** argv) {
         }
         if (arg == "--detailed") {
             detailed_debug = true;
+            common_log_set_verbosity_thold(999);
         }
     }
 
