@@ -1228,14 +1228,16 @@ common_chat_params common_chat_templates_apply(const struct common_chat_template
                               common_chat_templates_apply_legacy(tmpls, inputs);
 }
 
-common_chat_msg common_chat_parse(const std::string & input, bool is_partial, const common_chat_syntax & syntax) {
+common_chat_msg common_chat_parse(const std::string &               input,
+                                  bool                              is_partial,
+                                  const common_chat_parser_params & syntax) {
     return common_chat_peg_parse(syntax.parser, input, is_partial, syntax);
 }
 
-common_chat_msg common_chat_peg_parse(const common_peg_arena &   parser,
-                                      const std::string &        input,
-                                      bool                       is_partial,
-                                      const common_chat_syntax & syntax) {
+common_chat_msg common_chat_peg_parse(const common_peg_arena &          parser,
+                                      const std::string &               input,
+                                      bool                              is_partial,
+                                      const common_chat_parser_params & syntax) {
     if (parser.empty()) {
         throw std::runtime_error("Failed to parse due to missing parser definition.");
     }

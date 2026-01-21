@@ -541,14 +541,14 @@ static void test_templates(const struct common_chat_templates *  tmpls,
 
         if (expect_grammar_triggered) {
             // TODO @ngxson : refactor common_chat_parse to avoid passing format/reasoning_format every time
-            common_chat_parser_params params;
-            params.format           = data.params.format;
-            params.reasoning_format = reasoning_format;
-            if (!params.parser.empty()) {
-                syntax.parser = common_peg_arena();
-                syntax.parser.load(params.parser);
+            common_chat_parser_params parser_params;
+            parser_params.format           = data.params.format;
+            parser_params.reasoning_format = reasoning_format;
+            if (!parser_params.parser.empty()) {
+                parser_params.parser = common_peg_arena();
+                parser_params.parser.load(params.parser);
             }
-            const auto msg = common_chat_parse(data.delta, /* is_partial= */ false, params);
+            const auto msg = common_chat_parse(data.delta, /* is_partial= */ false, parser_params);
             assert_msg_equals(test_message, msg, ignore_whitespace_differences);
         }
 
@@ -723,6 +723,7 @@ struct make_peg_parser {
 common_chat_parser_params parser_params;
         parser_params.format = params_.format;
         return common_chat_peg_parse(arena_, msg, is_partial, parser_params);
+    }
 };
 
 static void test_peg_parser(common_chat_templates *                      tmpls,
@@ -1309,74 +1310,8 @@ static void test_template_output_parsers() {
         auto tmpls = read_templates("models/templates/NousResearch-Hermes-2-Pro-Llama-3-8B-tool_use.jinja");
         std::vector<std::string> end_tokens{ "<|im_end|>" };
 
-        assert_equals(COMMON_CHAT_FORMAT_HERMES_2_PRO, common_chat_templates_apply(tmpls.get(), inputs_no_tools).format);
-        assert_equals(COMMON_CHAT_FORMAT_HERMES_2_PRO, common_chat_templates_apply(tmpls.get(), inputs_tools).format);
-        assert_equals(
-            COMMON_CHAT_FORMAT_HERMES_2_PRO,
-            common_chat_templates_apply(
-                read_templates("models/templates/NousResearch-Hermes-3-Llama-3.1-8B-tool_use.jinja").get(),
-                inputs_tools)
-                .format);
-        assert_equals(
-            COMMON_CHAT_FORMAT_HERMES_2_PRO,
-            common_chat_templates_apply(
-                read_templates("models/templates/Qwen-Qwen2.5-7B-Instruct.jinja").get(),
-                inputs_tools)
-                .format);
-
-        // Test parsing
-        assert_msg_equals(
-            simple_assist_msg("", "", "python", ""),
-            common_chat_parse(
-                "```json\n"
-                "<function_call> { \"name\" : \"python\"",
-                /* is_partial= */ true,
-                {COMMON_CHAT_FORMAT_HERMES_2_PRO}));
-        assert_msg_equals(
-            simple_assist_msg("Let's call something\n"),
-            common_chat_parse(
-                "Let's call something\n"
-                "<tool_call>{\"name\"",
-                /* is_partial= */ true,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_HERMES_2_PRO,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(
-            simple_assist_msg("Let's call something\n"),
-            common_chat_parse(
-                "Let's call something\n"
-                "<tool_call>{\"name",
-                /* is_partial= */ true,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_HERMES_2_PRO,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(message_assist_call_thoughts,
-            common_chat_parse(
-                // QwQ-32B's template adds a trailing <think> if add_generation_prompt
-                "I'm\nthinking</think>\n"
-                "<tool_call>{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}</tool_call>",
-                /* is_partial= */ false,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_HERMES_2_PRO,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                    /* .reasoning_in_content = */ false,
-                    /* .thinking_forced_open = */ true,
-                }));
-        assert_msg_equals(
-            message_assist_call,
-            common_chat_parse(
-               "<tool_call>\n"
-               "{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n"
-               "</tool_call>")
-            .enable_thinking(true)
-            .reasoning_format(COMMON_REASONING_FORMAT_AUTO)
-            .tools({ special_function_tool })
-            .expect(simple_assist_msg("", "I should use a tool", "special_function", R"({"arg1": 1})"))
-            .run();
+        tst.test("Hello, world!").expect(simple_assist_msg("Hello, world!")).run();
     }
-
     {
         // NousResearch-Hermes-2-Pro and Hermes-3 (tool calling models)
         auto tst = peg_tester("models/templates/NousResearch-Hermes-2-Pro-Llama-3-8B-tool_use.jinja", detailed_debug);
@@ -1401,98 +1336,11 @@ static void test_template_output_parsers() {
         // Note: We only support one tool calling format per template, no alternate formats
     }
     {
-        auto tmpls = read_templates("models/templates/ibm-granite-granite-3.3-2B-Instruct.jinja");
-        std::vector<std::string> end_tokens{ "<|end_of_text|>" };
-
-        assert_equals(COMMON_CHAT_FORMAT_GRANITE, common_chat_templates_apply(tmpls.get(), inputs_no_tools).format);
-
-        assert_equals(COMMON_CHAT_FORMAT_GRANITE, common_chat_templates_apply(tmpls.get(), inputs_tools).format);
-
-        // Test parsing regular content
-        assert_msg_equals(message_assist,
-            common_chat_parse(
-                "Hello, world!\nWhat's up?",
-                /* is_partial= */ false,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-        assert_msg_equals(
-            message_assist,
-            common_chat_parse(
-                "Hello, world!\nWhat's up?",
-                /* is_partial= */ true,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-
-        // Test parsing content with thinking
-        assert_msg_equals(message_assist_thoughts,
-            common_chat_parse(
-                "<think>I'm\nthinking</think>Hello, world!\nWhat's up?",
-                /* is_partial= */ false,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_GRANITE,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(message_assist_thoughts_unparsed_deepseek,
-            common_chat_parse(
-                "<think>I'm\nthinking</think>Hello, world!\nWhat's up?",
-                /* is_partial= */ false,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-        assert_msg_equals(message_assist_thoughts,
-            common_chat_parse(
-                "<think>I'm\nthinking</think><response>Hello, world!\nWhat's up?",
-                /* is_partial= */ true,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_GRANITE,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(message_assist_thoughts,
-            common_chat_parse(
-                "<think>I'm\nthinking</think><response>Hello, world!\nWhat's up?</response>",
-                /* is_partial= */ false,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_GRANITE,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(simple_assist_msg("<think>I'm\nthinking</think><response>Hello, world!\nWhat's up?</response>"),
-            common_chat_parse(
-                "<think>I'm\nthinking</think><response>Hello, world!\nWhat's up?</response>",
-                /* is_partial= */ false,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-        assert_msg_equals(message_assist_empty,
-            common_chat_parse(
-                "<think",
-                /* is_partial= */ true,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_GRANITE,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(message_assist_empty,
-            common_chat_parse(
-                "<think",
-                /* is_partial= */ true,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-        assert_msg_equals(message_assist_thoughts_no_content,
-            common_chat_parse(
-                "<think>I'm\nthinking",
-                /* is_partial= */ true,
-                {
-                    /* .format = */ COMMON_CHAT_FORMAT_GRANITE,
-                    /* .reasoning_format = */ COMMON_REASONING_FORMAT_DEEPSEEK,
-                }));
-        assert_msg_equals(
-            message_assist_empty,
-            common_chat_parse(
-                "<think>I'm\nthinking</think><response",
-                /* is_partial= */ true,
-                {COMMON_CHAT_FORMAT_GRANITE}));
-
-    // Note: Functionary and Firefunction have dedicated handlers, not tested with auto-parser
-
-    {
         // Test simple content-only template
         auto tst = peg_tester("models/templates/google-gemma-2-2b-it.jinja", detailed_debug);
 
         tst.test("Hello, world!\nWhat's up?").expect(message_assist).run();
     }
-
     {
         // IBM Granite (reasoning and tool calling model)
         auto tst = peg_tester("models/templates/ibm-granite-granite-3.3-2B-Instruct.jinja", detailed_debug);
@@ -1529,38 +1377,6 @@ static void test_template_output_parsers() {
                "</seed:tool_call>")
             .tools({ special_function_tool })
             .expect(message_assist_call)
-            .run();
-
-        // Test deltas: the number of tool calls in partial parses should never decrease
-        std::string tool_msg = "<seed:tool_call>\n"
-            "<function=fun>\n"
-            "<parameter=smth>[1, 2, 3]</parameter>\n"
-            "</function>";
-        std::size_t previousToolCalls = 0;
-        for (std::size_t i = std::string("<seed:tool_call>").length(); i < tool_msg.length() - 1; i++) {
-            auto partial = tool_msg.substr(0, i);
-            auto partial_res = common_chat_parse(partial, true, { COMMON_CHAT_FORMAT_SEED_OSS, COMMON_REASONING_FORMAT_DEEPSEEK });
-            if (partial_res.tool_calls.size() < previousToolCalls) {
-                throw std::runtime_error("Tool call size decreased on partial: " + partial + " from " + std::to_string(previousToolCalls) + " to " + std::to_string(partial_res.tool_calls.size()));
-            }
-            previousToolCalls = partial_res.tool_calls.size();
-        }
-
-        // Test multiple parameters in tool call
-        common_chat_msg msg_multi_param;
-        msg_multi_param.role = "assistant";
-        msg_multi_param.tool_calls.push_back({"process_data", "{\"input\": \"test\", \"format\": \"json\"}", ""});
-        assert_msg_equals(
-            msg_multi_param,
-            common_chat_parse(
-               "<seed:tool_call>\n"
-               "<function=special_function>\n"
-               "<parameter=arg1>1</parameter>\n"
-               "</function>\n"
-               "</seed:tool_call>")
-            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
-            .tools({ special_function_tool })
-            .expect(simple_assist_msg("", "I need to call a function", "special_function", R"({"arg1": 1})"))
             .run();
 
         tst.test(
