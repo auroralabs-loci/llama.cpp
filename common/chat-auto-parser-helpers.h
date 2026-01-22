@@ -6,6 +6,7 @@
 
 #include "chat.h"
 #include "nlohmann/json.hpp"
+#include <regex>
 
 using json = nlohmann::ordered_json;
 
@@ -96,6 +97,25 @@ enum internal_tool_format {
     FORMAT_CONTENT_ONLY,
     FORMAT_UNKNOWN
 };
+struct diff_split {
+    std::string prefix;
+    std::string suffix;
+    std::string left;
+    std::string right;
+
+    bool operator==(struct diff_split & other) const {
+        return prefix == other.prefix && suffix == other.suffix && 
+               left == other.left && right == other.right;
+    }
+};
+
+// calculate a diff split (longest common prefix, longest common suffix excluding prefix, 
+// mismatched part on the left, mismatched part on the right) between two strings
+diff_split calculate_diff_split(const std::string & left, const std::string &right);
+
+// extracts string content between first occurences of regex left and right in target
+// returns empty optional if regexes not found or if position of left >= position of right
+std::optional<std::string> extract_between(const std::regex & left, const std::regex & right, const std::string target);
 
 // Find the suffix that differentiates an extended string from a base string
 std::string find_string_difference(const std::string & base, const std::string & extended);
