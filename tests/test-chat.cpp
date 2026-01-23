@@ -673,9 +673,9 @@ static void test_parser_with_streaming(const common_chat_msg & expected, const s
         if (curr_msg == simple_assist_msg("")) {
             continue;
         }
-        LOG_INF("Streaming msg: %s\n", common_chat_msgs_to_json_oaicompat<json>({ curr_msg }).dump().c_str());
+        LOG_INF("Streaming msg: %s\n", common_chat_msgs_to_json_oaicompat({ curr_msg }).dump().c_str());
         for (auto diff : common_chat_msg_diff::compute_diffs(last_msg, curr_msg)) {
-            LOG_INF("Streaming diff: %s\n", common_chat_msg_diff_to_json_oaicompat<json>(diff).dump().c_str());
+            LOG_INF("Streaming diff: %s\n", common_chat_msg_diff_to_json_oaicompat(diff).dump().c_str());
             if (!diff.reasoning_content_delta.empty()) {
                 merged.reasoning_content += diff.reasoning_content_delta;
             }
@@ -691,7 +691,7 @@ static void test_parser_with_streaming(const common_chat_msg & expected, const s
                     merged.tool_calls.back().arguments += diff.tool_call_delta.arguments;
                 }
             }
-            LOG_INF("Streaming merged: %s\n", common_chat_msgs_to_json_oaicompat<json>({ merged }).dump().c_str());
+            LOG_INF("Streaming merged: %s\n", common_chat_msgs_to_json_oaicompat({ merged }).dump().c_str());
         }
         assert_msg_equals(curr_msg, merged, true);
         last_msg = curr_msg;
