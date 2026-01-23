@@ -104,12 +104,12 @@ struct diff_split {
     std::string right;
 
     bool operator==(struct diff_split & other) const {
-        return prefix == other.prefix && suffix == other.suffix && 
+        return prefix == other.prefix && suffix == other.suffix &&
                left == other.left && right == other.right;
     }
 };
 
-// calculate a diff split (longest common prefix, longest common suffix excluding prefix, 
+// calculate a diff split (longest common prefix, longest common suffix excluding prefix,
 // mismatched part on the left, mismatched part on the right) between two strings
 diff_split calculate_diff_split(const std::string & left, const std::string &right);
 
