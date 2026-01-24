@@ -8,6 +8,7 @@
 #include "llama-kv-cache.h"
 #include "llama-kv-cache-iswa.h"
 #include "llama-memory-hybrid.h"
+#include "llama-memory-hybrid-iswa.h"
 #include "llama-memory-recurrent.h"
 
 #include "ggml-cpp.h"
@@ -468,7 +469,11 @@ llama_model::llama_model(const llama_model_params & params) : params(params), pi
     pimpl->has_tensor_overrides = params.tensor_buft_overrides && params.tensor_buft_overrides[0].pattern;
 }
 
-llama_model::~llama_model() = default;
+llama_model::~llama_model() {
+    for (auto * lora : loras) {
+        delete lora;
+    }
+}
 
 void llama_model::load_stats(llama_model_loader & ml) {
     pimpl->n_elements = ml.n_elements;
@@ -1709,7 +1714,12 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
                     // for compatibility with existing DeepSeek V2 and V2.5 GGUFs
                     // that have no expert_gating_func model parameter set
-                    hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX;
+                    if ((hparams.n_layer == 47 || hparams.n_layer == 48) && n_vocab == 154880) {
+                        // GLM 4.7 Lite
+                        hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
+                    } else {
+                        hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX;
+                    }
                 }
 
                 if (ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL, hparams.rope_yarn_log_mul, 0.0f)) {
@@ -1942,16 +1952,12 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 hparams.rope_freq_scale_train_swa = hparams.rope_freq_scale_train;
 
                 ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,                hparams.rope_freq_base_train_swa, false);
-                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,          hparams.n_swa, true);
+                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,          hparams.n_swa);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
-                ml.get_key(LLM_KV_EXPERT_COUNT,                      hparams.n_expert);
-                ml.get_key(LLM_KV_EXPERT_USED_COUNT,                 hparams.n_expert_used);
                 ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared, false);
                 ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
                 ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
-                ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,                hparams.n_expert_groups, false);
-                ml.get_key(LLM_KV_EXPERT_GROUP_USED_COUNT,           hparams.n_group_used, false);
-                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
+                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
                 ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
                 ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,               hparams.expert_weights_norm, false);
                 ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead);
@@ -7523,23 +7529,44 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                         };
                     }
 
-                    res = new llama_memory_hybrid(
-                        /* model             */ *this,
-                        /* attn_type_k       */ params.type_k,
-                        /* attn_type_v       */ params.type_v,
-                        /* attn_v_trans      */ !cparams.flash_attn,
-                        /* attn_kv_size      */ cparams.n_ctx,
-                        /* attn_n_pad        */ 1,
-                        /* attn_n_swa        */ hparams.n_swa,
-                        /* attn_swa_type     */ hparams.swa_type,
-                        /* recurrent_type_k  */ GGML_TYPE_F32,
-                        /* recurrent_type_v  */ GGML_TYPE_F32,
-                        /* recurrent_kv_size */ std::max((uint32_t) 1, cparams.n_seq_max),
-                        /* n_seq_max         */ cparams.n_seq_max,
-                        /* offload           */ cparams.offload_kqv,
-                        /* unified           */ cparams.kv_unified,
-                        /* filter_attn       */ std::move(filter_attn),
-                        /* filter_recr       */ std::move(filter_recr));
+                    if (hparams.swa_type != LLAMA_SWA_TYPE_NONE) {
+                        // Use hybrid-iswa for hybrid models with SWA
+                        res = new llama_memory_hybrid_iswa(
+                            /* model             */ *this,
+                            /* attn_type_k       */ params.type_k,
+                            /* attn_type_v       */ params.type_v,
+                            /* attn_v_trans      */ !cparams.flash_attn,
+                            /* attn_swa_full     */ params.swa_full,
+                            /* attn_kv_size      */ cparams.n_ctx,
+                            /* attn_n_ubatch     */ cparams.n_ubatch,
+                            /* attn_n_pad        */ 1,
+                            /* recurrent_type_r  */ GGML_TYPE_F32,
+                            /* recurrent_type_s  */ GGML_TYPE_F32,
+                            /* recurrent_rs_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                            /* n_seq_max         */ cparams.n_seq_max,
+                            /* offload           */ cparams.offload_kqv,
+                            /* unified           */ cparams.kv_unified,
+                            /* filter_attn       */ std::move(filter_attn),
+                            /* filter_recr       */ std::move(filter_recr));
+                    } else {
+                        res = new llama_memory_hybrid(
+                            /* model             */ *this,
+                            /* attn_type_k       */ params.type_k,
+                            /* attn_type_v       */ params.type_v,
+                            /* attn_v_trans      */ !cparams.flash_attn,
+                            /* attn_kv_size      */ cparams.n_ctx,
+                            /* attn_n_pad        */ 1,
+                            /* attn_n_swa        */ hparams.n_swa,
+                            /* attn_swa_type     */ hparams.swa_type,
+                            /* recurrent_type_k  */ GGML_TYPE_F32,
+                            /* recurrent_type_v  */ GGML_TYPE_F32,
+                            /* recurrent_kv_size */ std::max((uint32_t) 1, cparams.n_seq_max),
+                            /* n_seq_max         */ cparams.n_seq_max,
+                            /* offload           */ cparams.offload_kqv,
+                            /* unified           */ cparams.kv_unified,
+                            /* filter_attn       */ std::move(filter_attn),
+                            /* filter_recr       */ std::move(filter_recr));
+                    }
                 } else {
                     llama_memory_i::layer_reuse_cb reuse = nullptr;
 
