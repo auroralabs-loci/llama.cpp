@@ -4,7 +4,7 @@ import type {
 	ApiChatCompletionStreamChunk
 } from '$lib/types/api';
 import type { ChatMessagePromptProgress, ChatMessageTimings } from '$lib/types/chat';
-import { mergeToolCallDeltas, extractModelName } from '$lib/utils/chat-stream';
+import { mergeToolCallDeltas, extractModelName } from '$lib/utils';
 import type { AgenticChatCompletionRequest } from '$lib/types/agentic';
 
 export type OpenAISseCallbacks = {
