@@ -1,97 +1,52 @@
 #include "speculative.h"
 
+#include "common.h"
 #include "ggml.h"
 #include "llama.h"
 #include "log.h"
-#include "common.h"
+#include "ngram-cache.h"
+#include "ngram-map.h"
 #include "sampling.h"
 
-#include <cstring>
 #include <algorithm>
+#include <cstring>
+#include <iomanip>
 #include <map>
 
 #define SPEC_VOCAB_MAX_SIZE_DIFFERENCE  128
 #define SPEC_VOCAB_CHECK_START_TOKEN_ID 5
 
-struct common_speculative {
-    struct llama_context * ctx_tgt; // only used for retokenizing from ctx_dft
-    struct llama_context * ctx_dft;
-    struct common_sampler * smpl;
-
-    llama_batch batch;
-    llama_tokens prompt_dft;
-    bool vocab_dft_compatible = true; // whether retokenization is needed
-    std::map<std::string, std::string> tgt_dft_replacements = {};
+const std::vector<enum common_speculative_type> common_speculative_types = {
+    COMMON_SPECULATIVE_TYPE_NONE,
+    COMMON_SPECULATIVE_TYPE_DRAFT,
+    COMMON_SPECULATIVE_TYPE_EAGLE3,
+    COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE,
+    COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K,
+    COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V,
+    COMMON_SPECULATIVE_TYPE_NGRAM_CACHE
 };
 
-struct common_speculative * common_speculative_init(
-        struct llama_context * ctx_tgt,
-        struct llama_context * ctx_dft) {
-    auto * result = new common_speculative {
-        /* .ctx_tgt    = */ ctx_tgt,
-        /* .ctx_dft    = */ ctx_dft,
-        /* .smpl       = */ nullptr,
-        /* .batch      = */ llama_batch_init(llama_n_batch(ctx_dft), 0, 1),
-        /* .prompt_dft = */ {},
-        /* .vocab_dft_compatible = */ false,
-    };
+const std::map<std::string, enum common_speculative_type> common_speculative_type_from_name_map = {
+    {"none",          COMMON_SPECULATIVE_TYPE_NONE},
+    {"draft",         COMMON_SPECULATIVE_TYPE_DRAFT},
+    {"eagle3",        COMMON_SPECULATIVE_TYPE_EAGLE3},
+    {"ngram_simple",  COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE},
+    {"ngram_map_k",   COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K},
+    {"ngram_map_k4v", COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V},
+    {"ngram_cache",   COMMON_SPECULATIVE_TYPE_NGRAM_CACHE}
+};
 
-    // TODO: optimize or pass from outside?
-#if 0
-    {
-        common_params_sampling params;
-        params.no_perf = false;
+struct common_speculative_config {
+    common_speculative_type type;
+    common_params_speculative params;
 
-        params.top_k = 40;
-        params.top_p = 0.9;
+    common_speculative_config(common_speculative_type t,
+            const common_params_speculative & p = common_params_speculative{}) : type(t), params(p) {}
+};
 
-        params.samplers = {
-            COMMON_SAMPLER_TYPE_TOP_K,
-            COMMON_SAMPLER_TYPE_TOP_P,
-            COMMON_SAMPLER_TYPE_INFILL,
-        };
-
-        result->smpl = common_sampler_init(llama_get_model(ctx_dft), params);
-    }
-#else
-    {
-        common_params_sampling params;
-        params.no_perf = false;
-
-        params.top_k = 10;
-
-        params.samplers = {
-            COMMON_SAMPLER_TYPE_TOP_K,
-        };
-
-        result->smpl = common_sampler_init(llama_get_model(ctx_dft), params);
-    }
-#endif
-
-    result->vocab_dft_compatible = common_speculative_are_compatible(ctx_tgt, ctx_dft);
-    LOG_DBG("vocab_dft_compatible = %d\n", result->vocab_dft_compatible);
-
-    return result;
-}
-
-void common_speculative_free(struct common_speculative * spec) {
-    if (spec == nullptr) {
-        return;
-    }
-
-    common_sampler_free(spec->smpl);
-
-    llama_batch_free(spec->batch);
-
-    delete spec;
-}
-
-bool common_speculative_are_compatible(
-    const struct llama_context * ctx_tgt,
-    const struct llama_context * ctx_dft) {
-    const struct llama_model * model_tgt = llama_get_model(ctx_tgt);
-    const struct llama_model * model_dft = llama_get_model(ctx_dft);
-
+static bool common_speculative_are_compatible(
+    const struct llama_model * model_tgt,
+    const struct llama_model * model_dft) {
     const struct llama_vocab * vocab_tgt = llama_model_get_vocab(model_tgt);
     const struct llama_vocab * vocab_dft = llama_model_get_vocab(model_dft);
 
@@ -134,11 +89,12 @@ bool common_speculative_are_compatible(
         for (int i = SPEC_VOCAB_CHECK_START_TOKEN_ID; i < std::min(n_vocab_tgt, n_vocab_dft); ++i) {
             const char * token_text_tgt = llama_vocab_get_text(vocab_tgt, i);
             const char * token_text_dft = llama_vocab_get_text(vocab_dft, i);
+
             if (std::strcmp(token_text_tgt, token_text_dft) != 0) {
                 LOG_DBG("%s: draft model vocab must match target model to use speculation but ", __func__);
                 LOG_DBG("token %d content differs - target '%s', draft '%s'\n", i,
-                        common_token_to_piece(ctx_tgt, i).c_str(),
-                        common_token_to_piece(ctx_dft, i).c_str());
+                        common_token_to_piece(vocab_tgt, i).c_str(),
+                        common_token_to_piece(vocab_dft, i).c_str());
                 return false;
             }
         }
@@ -147,50 +103,415 @@ bool common_speculative_are_compatible(
     return true;
 }
 
-void common_speculative_add_replacement_tgt_dft(
-        struct common_speculative * spec,
-        const char *source, const char *dest) {
-    spec->tgt_dft_replacements[source] = dest;
+// state of an implementation of speculative decoding
+//
+// each implementation has a unique type and a state that is implementation-specific
+// in a subclass of common_speculative_state
+struct common_speculative_state {
+    const enum common_speculative_type type;
+
+    size_t drafts_call_count       = 0; // number of times this implementation was called.
+    size_t drafts_generated_count  = 0; // number of times a draft or part was generated by this implementation.
+    size_t drafts_accepted_count   = 0; // number of times a draft or part was accepted by the target model.
+    size_t drafts_generated_tokens = 0; // number of tokens generated by this implementation.
+    size_t drafts_accepted_tokens  = 0; // number of tokens accepted by the target model.
+
+    // TODO: track performance of most recent calls
+    const bool gen_perf = true; // whether to generate performance stats.
+
+    int64_t gen_duration_us = 0; // total time spent in this implementation in microseconds.
+
+    virtual ~common_speculative_state() = default;
+
+    common_speculative_state(enum common_speculative_type type) : type(type) {}
+};
+
+struct common_speculative_state_draft : public common_speculative_state {
+    struct llama_context * ctx_tgt; // only used for retokenizing from ctx_dft
+    struct llama_context * ctx_dft;
+
+    struct common_sampler * smpl;
+
+    llama_batch  batch;
+    llama_tokens prompt_dft;
+
+    bool vocab_cmpt = true; // whether retokenization is needed
+    std::unordered_map<std::string, std::string> vocab_map;
+
+    common_speculative_state_draft(
+            enum common_speculative_type type,
+            struct llama_context * ctx_tgt,
+            struct llama_context * ctx_dft,
+            const std::vector<std::pair<std::string, std::string>> & replacements)
+        : common_speculative_state(type)
+        , ctx_tgt(ctx_tgt)
+        , ctx_dft(ctx_dft)
+    {
+        batch = llama_batch_init(llama_n_batch(ctx_dft), 0, 1);
+        smpl = nullptr;
+
+        // TODO: optimize or pass from outside?
+        // {
+        //     common_params_sampling params;
+        //     params.no_perf = false;
+        //
+        //     params.top_k = 40;
+        //     params.top_p = 0.9;
+        //
+        //     params.samplers = {
+        //         COMMON_SAMPLER_TYPE_TOP_K,
+        //         COMMON_SAMPLER_TYPE_TOP_P,
+        //         COMMON_SAMPLER_TYPE_INFILL,
+        //     };
+        //
+        //     result->smpl = common_sampler_init(llama_get_model(ctx_dft), params);
+        // }
+        {
+            common_params_sampling params;
+            params.no_perf = false;
+            params.top_k = 10;
+            params.samplers = {
+                COMMON_SAMPLER_TYPE_TOP_K,
+            };
+
+            smpl = common_sampler_init(llama_get_model(ctx_dft), params);
+        }
+
+        vocab_cmpt = common_speculative_are_compatible(llama_get_model(ctx_tgt), llama_get_model(ctx_dft));
+        LOG_DBG("vocab_cmpt = %d\n", vocab_cmpt);
+
+        if (!vocab_cmpt) {
+            LOG_WRN("the target and draft vocabs are not compatible - tokens will be translated between the two\n");
+
+            for (const auto & pair : replacements) {
+                vocab_map[pair.first] = pair.second;
+            }
+        }
+    }
+
+    ~common_speculative_state_draft() override {
+        llama_perf_context_print(ctx_dft);
+
+        llama_free(ctx_dft);
+
+        common_sampler_free(smpl);
+
+        llama_batch_free(batch);
+    }
+};
+
+struct common_speculative_state_eagle3 : public common_speculative_state {
+    common_speculative_state_eagle3(enum common_speculative_type type) : common_speculative_state(type) {}
+};
+
+// state of self-speculation (simple implementation, not ngram-map)
+struct common_speculative_state_ngram_simple : public common_speculative_state {
+
+    common_ngram_simple_state state;
+
+    common_speculative_state_ngram_simple(
+            enum common_speculative_type type,
+            common_ngram_simple_state state)
+        : common_speculative_state(type), state(state) {}
+};
+
+struct common_speculative_state_ngram_map_k : public common_speculative_state {
+    // draft ngram map for speculative decoding without draft model
+    common_ngram_map map;
+
+    common_speculative_state_ngram_map_k(
+            enum common_speculative_type type,
+            common_ngram_map map)
+        : common_speculative_state(type), map(std::move(map)) {}
+};
+
+struct common_speculative_state_ngram_map_k4v : public common_speculative_state_ngram_map_k {
+    common_speculative_state_ngram_map_k4v(
+            enum common_speculative_type type,
+            common_ngram_map map)
+        : common_speculative_state_ngram_map_k(type, std::move(map)) {}
+};
+
+struct common_speculative_state_ngram_cache : public common_speculative_state {
+    uint16_t n_draft;
+    bool save_dynamic;
+    bool save_static;
+
+    common_ngram_cache ngram_cache_context;
+    common_ngram_cache ngram_cache_dynamic;
+    common_ngram_cache ngram_cache_static;
+
+    size_t cache_size = 0; // number of tokens in n-gram cache
+
+    common_speculative_state_ngram_cache(
+            const enum common_speculative_type type,
+            const std::string & path_static,
+            const std::string & path_dynamic,
+            uint16_t            n_draft,
+            bool                save_dynamic,
+            bool                save_static)
+        : common_speculative_state(type)
+        , n_draft(n_draft)
+        , save_dynamic(save_dynamic)
+        , save_static(save_static)
+    {
+        if (!path_static.empty()) {
+            try {
+                ngram_cache_static = common_ngram_cache_load(path_static);
+            } catch (...) {
+                LOG_ERR("failed to open static lookup cache: %s", path_static.c_str());
+                GGML_ABORT("Couldn't read static lookup cache");
+            }
+        }
+
+        if (!path_dynamic.empty()) {
+            try {
+                ngram_cache_dynamic = common_ngram_cache_load(path_dynamic);
+            } catch (...) {
+                LOG_ERR("failed to open dynamic lookup cache: %s", path_dynamic.c_str());
+                GGML_ABORT("Couldn't read dynamic lookup cache");
+            }
+        }
+    }
+};
+
+struct common_speculative {
+    std::vector<std::unique_ptr<common_speculative_state>> impls; // list of implementations to use and their states
+    common_speculative_state * curr_impl = nullptr; // current implementation in use (for stats)
+};
+
+static common_ngram_map get_common_ngram_map(const common_speculative_config & config) {
+    uint16_t size_key   = config.params.ngram_size_n;
+    uint16_t size_value = config.params.ngram_size_m;
+    bool     key_only   = (config.type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K);
+    uint16_t check_rate = config.params.ngram_check_rate;
+    uint16_t min_hits   = config.params.ngram_min_hits;
+
+    return common_ngram_map(size_key, size_value, key_only, check_rate, min_hits);
+}
+
+static struct common_speculative_state_ngram_cache create_state_ngram_cache(
+        const std::string & path_static, const std::string & path_dynamic,
+        const common_speculative_config & config) {
+    uint16_t n_draft = 8; // TODO get from config?
+
+    // TODO bool param in common/common.h to set save_static/save_dynamic?
+    bool save_static = false;
+    bool save_dynamic = false;
+
+    common_speculative_state_ngram_cache state(config.type, path_static, path_dynamic, n_draft, save_static, save_dynamic);
+
+    return state;
+}
+
+std::string common_speculative_type_name_str() {
+    std::string result;
+    for (size_t i = 0; i < common_speculative_types.size(); i++) {
+        if (i > 0) {
+            result += ", ";
+        }
+        result += common_speculative_type_to_str(common_speculative_types[i]);
+    }
+    return result;
+}
+
+std::string common_speculative_type_to_str(enum common_speculative_type type) {
+    switch (type) {
+        case COMMON_SPECULATIVE_TYPE_NONE:          return "none";
+        case COMMON_SPECULATIVE_TYPE_DRAFT:         return "draft";
+        case COMMON_SPECULATIVE_TYPE_EAGLE3:        return "eagle3";
+        case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE:  return "ngram_simple";
+        case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K:   return "ngram_map_k";
+        case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V: return "ngram_map_k4v";
+        case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE:   return "ngram_cache";
+        default:                                    return "unknown";
+    }
+}
+
+enum common_speculative_type common_speculative_type_from_name(const std::string & name) {
+    const auto it = common_speculative_type_from_name_map.find(name);
+    if (it == common_speculative_type_from_name_map.end()) {
+        return COMMON_SPECULATIVE_TYPE_COUNT;
+    }
+    return it->second;
+}
+
+// initialization of the speculative decoding system
+//
+struct common_speculative * common_speculative_init(
+        const struct common_params_speculative & params,
+              struct llama_context             * ctx_tgt,
+        const struct llama_context_params      & cparams_dft,
+              struct llama_model               * model_dft) {
+    llama_context * ctx_dft = nullptr;
+    if (model_dft) {
+        ctx_dft = llama_init_from_model(model_dft, cparams_dft);
+        if (ctx_dft == nullptr) {
+            LOG_ERR("%s", "failed to create draft context\n");
+            return nullptr;
+        }
+    }
+
+    // Compute the implementations to use based on the config and their order of preference
+    std::vector<common_speculative_config> configs = {}; // list of speculative configs to try
+    {
+        bool has_draft = !params.model.path.empty();
+        bool has_draft_eagle3 = false; // TODO PR-18039: if params.speculative.eagle3
+
+        bool has_ngram_cache   = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_CACHE);
+        bool has_ngram_simple  = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE);
+        bool has_ngram_map_k   = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K);
+        bool has_ngram_map_k4v = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V);
+
+        // In a more complex implementation we could use the same implementation but with different parameters.
+        // This was initially used in PR-18471 but removed to simplify the code.
+        if (has_ngram_simple) {
+            // This implementation can guess a lot of tokens without any draft model.
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE, params));
+        }
+        if (has_ngram_map_k) {
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K, params));
+        }
+        if (has_ngram_map_k4v) {
+            // This implementation can guess tokens with high acceptance rate but is more expensive.
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V, params));
+        }
+        if (has_ngram_cache) {
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_CACHE, params));
+        }
+        if (has_draft) {
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_DRAFT, params));
+        }
+        if (has_draft_eagle3) {
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_EAGLE3, params));
+        }
+    }
+
+    std::vector<std::unique_ptr<common_speculative_state>> implementations = {};
+
+    for (const common_speculative_config & config : configs) {
+        LOG_DBG("%s: adding implementation %s\n", __func__, common_speculative_type_to_str(config.type).c_str());
+        switch (config.type) {
+            case COMMON_SPECULATIVE_TYPE_NONE:
+                break;
+            case COMMON_SPECULATIVE_TYPE_DRAFT: {
+                implementations.push_back(std::make_unique<common_speculative_state_draft>(config.type,
+                    /* .ctx_tgt      = */ ctx_tgt,
+                    /* .ctx_dft      = */ ctx_dft,
+                    /* .replacements = */ params.replacements
+                ));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_EAGLE3: {
+                implementations.push_back(std::make_unique<common_speculative_state_eagle3>(config.type));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE: {
+                common_ngram_map ngram_map = get_common_ngram_map(config);
+
+                uint16_t ngram_size_key   = ngram_map.size_key;
+                uint16_t mgram_size_value = ngram_map.size_value;
+                uint16_t check_rate       = ngram_map.check_rate;
+
+                auto config_simple = common_ngram_simple_config{
+                    /* .size_ngram      = */ ngram_size_key,
+                    /* .size_mgram      = */ mgram_size_value,
+                    /* .check_rate      = */ check_rate
+                };
+                auto state = std::make_unique<common_speculative_state_ngram_simple>(
+                    /* .type            = */ config.type,
+                    /* .state           = */ common_ngram_simple_state(config_simple)
+                );
+                implementations.push_back(std::move(state));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K: {
+                implementations.push_back(std::make_unique<common_speculative_state_ngram_map_k>(
+                    (config.type),
+                    get_common_ngram_map(config)
+                ));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V: {
+                implementations.push_back(std::make_unique<common_speculative_state_ngram_map_k4v>(
+                            (config.type),
+                            get_common_ngram_map(config)
+                ));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE: {
+                auto state = create_state_ngram_cache(
+                        params.lookup_cache_static, params.lookup_cache_dynamic, config);
+                implementations.push_back(std::make_unique<common_speculative_state_ngram_cache>(state));
+
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    if (implementations.empty()) {
+        LOG_WRN("%s", "no implementations specified for speculative decoding\n");
+        return nullptr;
+    }
+
+    auto * result = new common_speculative {
+        /* .impls          = */ std::move(implementations)
+    };
+
+    return result;
+}
+
+void common_speculative_free(struct common_speculative * spec) {
+    if (spec == nullptr) {
+        return;
+    }
+
+    delete spec;
 }
 
 static std::string replace_to_dft(
-        struct common_speculative * spec,
-        const std::string& input) {
+        struct common_speculative_state_draft * spec,
+        const std::string & input) {
     std::string result = input;
-    for (const auto & pair : spec->tgt_dft_replacements) {
+
+    for (const auto & pair : spec->vocab_map) {
         size_t pos = result.find(pair.first);
         while (pos != std::string::npos) {
             result.replace(pos, pair.first.length(), pair.second);
             pos = result.find(pair.first, pos + pair.second.length());
         }
     }
+
     return result;
 }
 
 static std::string replace_to_tgt(
-        struct common_speculative * spec,
+        struct common_speculative_state_draft * spec,
         const std::string& input) {
     std::string result = input;
-    for (const auto& pair : spec->tgt_dft_replacements) {
+
+    for (const auto & pair : spec->vocab_map) {
         size_t pos = result.find(pair.second);
         while (pos != std::string::npos) {
             result.replace(pos, pair.second.length(), pair.first);
             pos = result.find(pair.second, pos + pair.first.length());
         }
     }
+
     return result;
 }
 
-
-llama_tokens common_speculative_gen_draft(
-        struct common_speculative * spec,
+static llama_tokens common_speculative_use_draft_model(
+        struct common_speculative_state_draft * spec,
         struct common_speculative_params params,
-        const llama_tokens & prompt_tgt_main_model, // specified in target model vocab
+        const llama_tokens & prompt_tgt, // specified in target model vocab
         llama_token id_last) {
-    auto & batch  = spec->batch;
-    auto & ctx_tgt = spec->ctx_tgt;
-    auto & ctx_dft = spec->ctx_dft;
-    auto & smpl   = spec->smpl;
+    auto & batch      = spec->batch;
+    auto & ctx_tgt    = spec->ctx_tgt;
+    auto & ctx_dft    = spec->ctx_dft;
+    auto & smpl       = spec->smpl;
     auto & prompt_dft = spec->prompt_dft;
 
     auto * mem_dft = llama_get_memory(ctx_dft);
@@ -200,13 +521,16 @@ llama_tokens common_speculative_gen_draft(
 
     const int n_ctx = llama_n_ctx(ctx_dft) - params.n_draft;
 
-    llama_tokens prompt_tgt_draft_model;
-    if (!spec->vocab_dft_compatible) {
+    llama_tokens prompt_cnv;
+    if (!spec->vocab_cmpt) {
         std::string text;
-        text = common_detokenize(ctx_tgt, prompt_tgt_main_model, true);
+
+        text = common_detokenize(ctx_tgt, prompt_tgt, true);
         text = replace_to_dft(spec, text);
+
         LOG_DBG("%s: main->draft detokenized string: '%s'\n", __func__, text.c_str());
-        prompt_tgt_draft_model = common_tokenize(ctx_dft, text, false, true);
+
+        prompt_cnv = common_tokenize(ctx_dft, text, false, true);
 
         // convert id_last to draft vocab. llama_detokenize is called directly to avoid an allocation
         const auto * model_tgt = llama_get_model(ctx_tgt);
@@ -214,6 +538,7 @@ llama_tokens common_speculative_gen_draft(
 
         int32_t n_chars = llama_detokenize(vocab_tgt, &id_last, 1, nullptr, 0, false, false);
         GGML_ASSERT(n_chars < 0 && "failed to detokenize id_last");
+
         text.resize(-n_chars);
         llama_detokenize(vocab_tgt, &id_last, 1, text.data(), text.size(), false, false);
         text = replace_to_dft(spec, text);
@@ -221,23 +546,22 @@ llama_tokens common_speculative_gen_draft(
         LOG_DBG("main->draft detokenized id_last(%d): '%s'\n", id_last, text.c_str());
         id_last = common_tokenize(ctx_dft, text, false, true)[0];
     }
-    // prompt_tgt's tokens will always be compatible with ctx_dft
-    const llama_tokens &prompt_tgt =
-        spec->vocab_dft_compatible ? prompt_tgt_main_model : prompt_tgt_draft_model;
 
-    const int i_start = std::max<int>(0, (int) prompt_tgt.size() - n_ctx);
+    const llama_tokens & prompt_cur = spec->vocab_cmpt ? prompt_tgt : prompt_cnv;
+
+    const int i_start = std::max<int>(0, (int) prompt_cur.size() - n_ctx);
 
     // reuse as much as possible from the old draft context
     // ideally, the draft context should be as big as the target context and we will always reuse the entire prompt
     for (int i = 0; i < (int) prompt_dft.size(); ++i) {
         int cur = 0;
-        while (i_start + cur < (int) prompt_tgt.size() &&
+        while (i_start + cur < (int) prompt_cur.size() &&
                i       + cur < (int) prompt_dft.size() &&
-               prompt_tgt[i_start + cur] == prompt_dft[i + cur]) {
+               prompt_cur[i_start + cur] == prompt_dft[i + cur]) {
             cur++;
         }
 
-        if ((cur >= params.n_reuse || n_ctx >= (int) prompt_tgt.size()) && cur > reuse_n) {
+        if ((cur >= 256 || n_ctx >= (int) prompt_cur.size()) && cur > reuse_n) {
             reuse_i = i;
             reuse_n = cur;
         }
@@ -282,11 +606,11 @@ llama_tokens common_speculative_gen_draft(
     // prepare a batch to evaluate any new tokens in the prompt
     common_batch_clear(batch);
 
-    for (size_t i = i_start + reuse_n; i < prompt_tgt.size(); ++i) {
-        //LOG_DBG("i = %d, i_start = %d, reuse_n = %d, i - i_start = %d, id = %6d\n", i, i_start, reuse_n, i - i_start, prompt_tgt[i]);
-        common_batch_add(batch, prompt_tgt[i], i - i_start, { 0 }, false);
+    for (size_t i = i_start + reuse_n; i < prompt_cur.size(); ++i) {
+        //LOG_DBG("i = %d, i_start = %d, reuse_n = %d, i - i_start = %d, id = %6d\n", i, i_start, reuse_n, i - i_start, prompt_cur[i]);
+        common_batch_add(batch, prompt_cur[i], i - i_start, { 0 }, false);
 
-        prompt_dft.push_back(prompt_tgt[i]);
+        prompt_dft.push_back(prompt_cur[i]);
     }
 
     // we should rarely end-up here during normal decoding
@@ -348,7 +672,7 @@ llama_tokens common_speculative_gen_draft(
         prompt_dft.push_back(id);
     }
 
-    if (!spec->vocab_dft_compatible) {
+    if (!spec->vocab_cmpt) {
         std::string detokenized = common_detokenize(ctx_dft, result, true);
         detokenized = replace_to_tgt(spec, detokenized);
         LOG_DBG("draft->main detokenized string: '%s'\n", detokenized.c_str());
@@ -357,5 +681,200 @@ llama_tokens common_speculative_gen_draft(
             result.resize(params.n_draft);
         }
     }
+
     return result;
+}
+
+/**
+ * Perform speculative generation using a 3-tier n-gram cache.
+ *
+ * @param state     Current state of this implementation
+ * @param tokens    Token history to search in
+ * @param sampled   Last sampled token
+ * @return Vector of draft tokens, empty if draft is found
+ */
+static llama_tokens common_speculative_gen_ngram_cache(
+        common_speculative_state_ngram_cache & state,
+        const llama_tokens & tokens, llama_token sampled) {
+    if (state.cache_size < tokens.size() + 1) {
+        llama_tokens tokens_new;
+        tokens_new.reserve(tokens.size() + 1 - state.cache_size);
+        for (size_t j = state.cache_size; j < tokens.size(); ++j) {
+            tokens_new.push_back(tokens[j]);
+        }
+        tokens_new.push_back(sampled); // add the last token
+
+        // Update context ngram cache with new tokens:
+        common_ngram_cache_update(state.ngram_cache_context, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
+                tokens_new, tokens_new.size(), false);
+        state.cache_size = tokens.size() + 1;
+    }
+
+    llama_tokens inp;
+    inp.reserve(tokens.size() + 1);
+    for (size_t j = 0; j < tokens.size(); ++j) {
+        inp.push_back(tokens[j]);
+    }
+    inp.push_back(sampled);
+
+    llama_tokens draft;
+    draft.push_back(sampled);
+
+    common_ngram_cache_draft(inp, draft, state.n_draft, LLAMA_NGRAM_MIN, LLAMA_NGRAM_MAX,
+            state.ngram_cache_context,
+            state.ngram_cache_dynamic,
+            state.ngram_cache_static);
+
+    if (draft.size() > 0) {
+        // delete first token in draft (which is the sampled token)
+        draft.erase(draft.begin());
+    }
+
+    return draft;
+}
+llama_tokens common_speculative_gen_draft(
+        struct common_speculative * spec,
+        struct common_speculative_params params,
+        const llama_tokens & prompt_tgt, // specified in target model vocab
+        llama_token id_last) {
+    llama_tokens result = {};
+
+    spec->curr_impl = nullptr; // reset current implementation
+
+    // TODO: avoid dynamic casts
+    for (auto & impl : spec->impls) {
+        impl->drafts_call_count++;
+        const int64_t t_start_us = impl->gen_perf ? ggml_time_us() : 0;
+
+        switch (impl->type) {
+            case COMMON_SPECULATIVE_TYPE_NONE:
+            {
+            } break;
+            case COMMON_SPECULATIVE_TYPE_DRAFT:
+            {
+                // Create a draft using a draft model.
+                auto * draft_impl = dynamic_cast<struct common_speculative_state_draft *>(impl.get());
+                if (draft_impl) {
+                    result = common_speculative_use_draft_model(draft_impl, params, prompt_tgt, id_last);
+                } else {
+                    GGML_ABORT("unexpected implementation in type %d", impl.get()->type);
+                }
+            } break;
+            case COMMON_SPECULATIVE_TYPE_EAGLE3:
+            {
+                // Work in progress: https://github.com/ggml-org/llama.cpp/pull/18039
+            } break;
+            case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE:
+            {
+                // Use common_ngram_map_draft to generate a draft from the current context.
+                auto * state = dynamic_cast<struct common_speculative_state_ngram_simple *>(impl.get());
+                if (state) {
+                    result = common_ngram_simple_draft(state->state, prompt_tgt, id_last);
+                } else {
+                    GGML_ABORT("unexpected implementation in type %d", impl.get()->type);
+                }
+            } break;
+            case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K:
+            {
+                // Use common_ngram_map_draft to generate a draft from the current context.
+                auto * state = dynamic_cast<common_speculative_state_ngram_map_k *>(impl.get());
+                if (state) {
+                    common_ngram_map_draft(state->map, prompt_tgt, id_last, result);
+                } else {
+                    GGML_ABORT("unexpected implementation in type %d", impl.get()->type);
+                }
+            } break;
+            case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V:
+            {
+                // Use common_ngram_map_draft to generate a draft from the current context.
+                auto * state = dynamic_cast<common_speculative_state_ngram_map_k *>(impl.get());
+                if (state) {
+                    common_ngram_map_draft(state->map, prompt_tgt, id_last, result);
+                } else {
+                    GGML_ABORT("unexpected implementation in type %d", impl.get()->type);
+                }
+            } break;
+            case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE:
+            {
+                auto * state = dynamic_cast<common_speculative_state_ngram_cache *>(impl.get());
+                if (state) {
+                    result = common_speculative_gen_ngram_cache(*state, prompt_tgt, id_last);
+                } else {
+                    GGML_ABORT("unexpected implementation in type %d", impl.get()->type);
+                }
+            } break;
+            case COMMON_SPECULATIVE_TYPE_COUNT:
+            {
+                GGML_ABORT("invalid speculative type COUNT");
+            }
+        }
+
+        const int64_t t_now_us = impl->gen_perf ? ggml_time_us() : 0;
+        impl->gen_duration_us += t_now_us - t_start_us; // accumulate duration for this implementation
+
+        if (!result.empty()) {
+            LOG_DBG("%s: called impl %s, hist size = %zu, call_count = %zu, gen = %zu\n", __func__,
+                    common_speculative_type_to_str(impl.get()->type).c_str(),
+                    prompt_tgt.size(),
+                    impl.get()->drafts_call_count, result.size());
+            spec->curr_impl = impl.get(); // set current implementation for stats
+            impl->drafts_generated_count++;
+            impl->drafts_generated_tokens += result.size();
+
+            break; // We have a draft, so break out of the loop and return it.
+        }
+    }
+
+    return result;
+}
+
+void common_speculative_accept(struct common_speculative * spec, uint16_t n_accepted) {
+    if (n_accepted == 0) {
+        return;
+    }
+
+    common_speculative_state * impl = spec->curr_impl;
+
+    GGML_ASSERT(impl);
+
+    if (n_accepted > 0) {
+        impl->drafts_accepted_count++;
+        impl->drafts_accepted_tokens += n_accepted;
+    }
+
+    if (impl->type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K ||
+        impl->type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V) {
+
+        // TODO: add common_speculative_state::accept() to base class and remove this dynamic cast
+        auto * state = dynamic_cast<struct common_speculative_state_ngram_map_k *>(impl);
+        if (state) {
+            common_ngram_map_accept(state->map, n_accepted);
+        }
+    }
+}
+
+void common_speculative_print_stats(const struct common_speculative * spec) {
+    if (spec == nullptr) {
+        return;
+    }
+
+    for (const auto & impl : spec->impls) {
+        std::string str_perf;
+        if (impl->gen_perf) {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(3) << impl->gen_duration_us / 1000.0;
+            str_perf = ", dur = " + oss.str() + " ms";
+        } else {
+            str_perf = "";
+        }
+
+        LOG_INF("statistics %s: #calls = %zu, #gen drafts = %zu, #acc drafts = %zu, #gen tokens = %zu, #acc tokens = %zu%s\n",
+                common_speculative_type_to_str(impl->type).c_str(),
+                impl->drafts_call_count,
+                impl->drafts_generated_count,
+                impl->drafts_accepted_count,
+                impl->drafts_generated_tokens,
+                impl->drafts_accepted_tokens,
+                str_perf.c_str());
+    }
 }
