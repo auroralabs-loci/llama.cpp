@@ -1,19 +1,7 @@
 import { activeProcessingState } from '$lib/stores/chat.svelte';
 import { config } from '$lib/stores/settings.svelte';
-
-export interface LiveProcessingStats {
-	tokensProcessed: number;
-	totalTokens: number;
-	timeMs: number;
-	tokensPerSecond: number;
-	etaSecs?: number;
-}
-
-export interface LiveGenerationStats {
-	tokensGenerated: number;
-	timeMs: number;
-	tokensPerSecond: number;
-}
+import { STATS_UNITS } from '$lib/constants/processing-info';
+import type { ApiProcessingState, LiveProcessingStats, LiveGenerationStats } from '$lib/types';
 
 export interface UseProcessingStateReturn {
 	readonly processingState: ApiProcessingState | null;
@@ -163,7 +151,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 		}
 
 		if (stateToUse.tokensPerSecond && stateToUse.tokensPerSecond > 0) {
-			details.push(`${stateToUse.tokensPerSecond.toFixed(1)} tokens/sec`);
+			details.push(`${stateToUse.tokensPerSecond.toFixed(1)} ${STATS_UNITS.TOKENS_PER_SECOND}`);
 		}
 
 		if (stateToUse.speculative) {

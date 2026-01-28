@@ -4,6 +4,7 @@
 	import { config } from '$lib/stores/settings.svelte';
 	import ChatMessageActions from './ChatMessageActions.svelte';
 	import ChatMessageEditForm from './ChatMessageEditForm.svelte';
+	import { MessageRole } from '$lib/enums';
 
 	interface Props {
 		class?: string;
@@ -23,7 +24,6 @@
 		onCancelEdit: () => void;
 		onSaveEdit: () => void;
 		onSaveEditOnly?: () => void;
-		onEditKeydown: (event: KeyboardEvent) => void;
 		onEditedContentChange: (content: string) => void;
 		onEditedExtrasChange?: (extras: DatabaseMessageExtra[]) => void;
 		onEditedUploadedFilesChange?: (files: ChatUploadedFile[]) => void;
@@ -33,7 +33,6 @@
 		onConfirmDelete: () => void;
 		onNavigateToSibling?: (siblingId: string) => void;
 		onShowDeleteDialogChange: (show: boolean) => void;
-		textareaElement?: HTMLTextAreaElement;
 	}
 
 	let {
@@ -49,7 +48,6 @@
 		onCancelEdit,
 		onSaveEdit,
 		onSaveEditOnly,
-		onEditKeydown,
 		onEditedContentChange,
 		onEditedExtrasChange,
 		onEditedUploadedFilesChange,
@@ -58,8 +56,7 @@
 		onDelete,
 		onConfirmDelete,
 		onNavigateToSibling,
-		onShowDeleteDialogChange,
-		textareaElement = $bindable()
+		onShowDeleteDialogChange
 	}: Props = $props();
 
 	let isMultiline = $state(false);
@@ -98,8 +95,6 @@
 >
 	{#if isEditing}
 		<ChatMessageEditForm
-			bind:textareaElement
-			messageId={message.id}
 			{editedContent}
 			{editedExtras}
 			{editedUploadedFiles}
@@ -109,7 +104,6 @@
 			{onCancelEdit}
 			{onSaveEdit}
 			{onSaveEditOnly}
-			{onEditKeydown}
 			{onEditedContentChange}
 			{onEditedExtrasChange}
 			{onEditedUploadedFilesChange}
@@ -123,8 +117,9 @@
 
 		{#if message.content.trim()}
 			<Card
-				class="max-w-[80%] rounded-[1.125rem] border-none bg-primary px-3.75 py-1.5 text-primary-foreground data-[multiline]:py-2.5"
+				class="max-w-[80%] overflow-y-auto rounded-[1.125rem] border-none bg-primary/5 px-3.75 py-1.5 text-foreground backdrop-blur-md data-[multiline]:py-2.5 dark:bg-primary/15"
 				data-multiline={isMultiline ? '' : undefined}
+				style="max-height: var(--max-message-height); overflow-wrap: anywhere; word-break: break-word;"
 			>
 				{#if currentConfig.renderUserContentAsMarkdown}
 					<div bind:this={messageElement} class="text-md">
@@ -155,7 +150,7 @@
 					{onShowDeleteDialogChange}
 					{siblingInfo}
 					{showDeleteDialog}
-					role="user"
+					role={MessageRole.USER}
 				/>
 			</div>
 		{/if}

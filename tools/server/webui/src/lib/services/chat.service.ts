@@ -1,5 +1,8 @@
-import { getJsonHeaders } from '$lib/utils';
-import { AttachmentType } from '$lib/enums';
+import { getJsonHeaders, formatAttachmentText } from '$lib/utils';
+import { AGENTIC_REGEX } from '$lib/constants/agentic';
+import { AttachmentType, MessageRole, ReasoningFormat } from '$lib/enums';
+import type { ApiChatMessageContentPart } from '$lib/types/api';
+import type { DatabaseMessageExtraMcpPrompt } from '$lib/types';
 
 /**
  * ChatService - Low-level API communication layer for Chat Completions
@@ -34,9 +37,41 @@ import { AttachmentType } from '$lib/enums';
  * - Request lifecycle management (abort via AbortSignal)
  */
 export class ChatService {
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Messaging
-	// ─────────────────────────────────────────────────────────────────────────────
+	private static stripReasoningContent(
+		content: ApiChatMessageData['content'] | null | undefined
+	): ApiChatMessageData['content'] | null | undefined {
+		if (!content) {
+			return content;
+		}
+
+		if (typeof content === 'string') {
+			return content
+				.replace(AGENTIC_REGEX.REASONING_BLOCK, '')
+				.replace(AGENTIC_REGEX.REASONING_OPEN, '');
+		}
+
+		if (!Array.isArray(content)) {
+			return content;
+		}
+
+		return content.map((part: ApiChatMessageContentPart) => {
+			if (part.type !== 'text' || !part.text) return part;
+			return {
+				...part,
+				text: part.text
+					.replace(AGENTIC_REGEX.REASONING_BLOCK, '')
+					.replace(AGENTIC_REGEX.REASONING_OPEN, '')
+			};
+		});
+	}
+
+	/**
+	 *
+	 *
+	 * Messaging
+	 *
+	 *
+	 */
 
 	/**
 	 * Sends a chat completion request to the llama.cpp server.
@@ -63,6 +98,8 @@ export class ChatService {
 			onToolCallChunk,
 			onModel,
 			onTimings,
+			// Tools for function calling
+			tools,
 			// Generation parameters
 			temperature,
 			max_tokens,
@@ -90,7 +127,7 @@ export class ChatService {
 			custom,
 			timings_per_token,
 			// Config options
-			disableReasoningFormat
+			disableReasoningParsing
 		} = options;
 
 		const normalizedMessages: ApiChatMessageData[] = messages
@@ -104,7 +141,7 @@ export class ChatService {
 			})
 			.filter((msg) => {
 				// Filter out empty system messages
-				if (msg.role === 'system') {
+				if (msg.role === MessageRole.SYSTEM) {
 					const content = typeof msg.content === 'string' ? msg.content : '';
 
 					return content.trim().length > 0;
@@ -116,10 +153,15 @@ export class ChatService {
 		const requestBody: ApiChatCompletionRequest = {
 			messages: normalizedMessages.map((msg: ApiChatMessageData) => ({
 				role: msg.role,
-				content: msg.content
+				// Strip reasoning tags/content from the prompt to avoid polluting KV cache.
+				// TODO: investigate backend expectations for reasoning tags and add a toggle if needed.
+				content: ChatService.stripReasoningContent(msg.content),
+				tool_calls: msg.tool_calls,
+				tool_call_id: msg.tool_call_id
 			})),
 			stream,
-			return_progress: stream ? true : undefined
+			return_progress: stream ? true : undefined,
+			tools: tools && tools.length > 0 ? tools : undefined
 		};
 
 		// Include model in request if provided (required in ROUTER mode)
@@ -127,7 +169,9 @@ export class ChatService {
 			requestBody.model = options.model;
 		}
 
-		requestBody.reasoning_format = disableReasoningFormat ? 'none' : 'auto';
+		requestBody.reasoning_format = disableReasoningParsing
+			? ReasoningFormat.NONE
+			: ReasoningFormat.AUTO;
 
 		if (temperature !== undefined) requestBody.temperature = temperature;
 		if (max_tokens !== undefined) {
@@ -247,9 +291,13 @@ export class ChatService {
 		}
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Streaming
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Streaming
+	 *
+	 *
+	 */
 
 	/**
 	 * Handles streaming response from the chat completion API
@@ -322,6 +370,10 @@ export class ChatService {
 			hasOpenToolCallBatch = true;
 
 			const serializedToolCalls = JSON.stringify(aggregatedToolCalls);
+
+			if (import.meta.env.DEV) {
+				console.log('[ChatService] Aggregated tool calls:', serializedToolCalls);
+			}
 
 			if (!serializedToolCalls) {
 				return;
@@ -472,10 +524,6 @@ export class ChatService {
 			const reasoningContent = data.choices[0]?.message?.reasoning_content;
 			const toolCalls = data.choices[0]?.message?.tool_calls;
 
-			if (reasoningContent) {
-				console.log('Full reasoning content:', reasoningContent);
-			}
-
 			let serializedToolCalls: string | undefined;
 
 			if (toolCalls && toolCalls.length > 0) {
@@ -563,9 +611,13 @@ export class ChatService {
 		return result;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Conversion
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Conversion
+	 *
+	 *
+	 */
 
 	/**
 	 * Converts a database message with attachments to API chat message format.
@@ -584,7 +636,7 @@ export class ChatService {
 	): ApiChatMessageData {
 		if (!message.extra || message.extra.length === 0) {
 			return {
-				role: message.role as 'user' | 'assistant' | 'system',
+				role: message.role as MessageRole,
 				content: message.content
 			};
 		}
@@ -598,6 +650,7 @@ export class ChatService {
 			});
 		}
 
+		// Include images from all messages
 		const imageFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraImageFile =>
 				extra.type === AttachmentType.IMAGE
@@ -618,7 +671,7 @@ export class ChatService {
 		for (const textFile of textFiles) {
 			contentParts.push({
 				type: 'text',
-				text: `\n\n--- File: ${textFile.name} ---\n${textFile.content}`
+				text: formatAttachmentText('File', textFile.name, textFile.content)
 			});
 		}
 
@@ -631,7 +684,7 @@ export class ChatService {
 		for (const legacyContextFile of legacyContextFiles) {
 			contentParts.push({
 				type: 'text',
-				text: `\n\n--- File: ${legacyContextFile.name} ---\n${legacyContextFile.content}`
+				text: formatAttachmentText('File', legacyContextFile.name, legacyContextFile.content)
 			});
 		}
 
@@ -666,20 +719,41 @@ export class ChatService {
 			} else {
 				contentParts.push({
 					type: 'text',
-					text: `\n\n--- PDF File: ${pdfFile.name} ---\n${pdfFile.content}`
+					text: formatAttachmentText('PDF File', pdfFile.name, pdfFile.content)
 				});
 			}
 		}
 
+		const mcpPrompts = message.extra.filter(
+			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraMcpPrompt =>
+				extra.type === AttachmentType.MCP_PROMPT
+		);
+
+		for (const mcpPrompt of mcpPrompts) {
+			contentParts.push({
+				type: 'text',
+				text: formatAttachmentText(
+					'MCP Prompt',
+					mcpPrompt.name,
+					mcpPrompt.content,
+					mcpPrompt.serverName
+				)
+			});
+		}
+
 		return {
-			role: message.role as 'user' | 'assistant' | 'system',
+			role: message.role as MessageRole,
 			content: contentParts
 		};
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Utilities
-	// ─────────────────────────────────────────────────────────────────────────────
+	/**
+	 *
+	 *
+	 * Utilities
+	 *
+	 *
+	 */
 
 	/**
 	 * Parses error response and creates appropriate error with context information

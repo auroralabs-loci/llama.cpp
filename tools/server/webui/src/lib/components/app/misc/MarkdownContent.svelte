@@ -14,17 +14,23 @@
 	import { rehypeRestoreTableHtml } from '$lib/markdown/table-html-restorer';
 	import { rehypeEnhanceLinks } from '$lib/markdown/enhance-links';
 	import { rehypeEnhanceCodeBlocks } from '$lib/markdown/enhance-code-blocks';
+	import { rehypeResolveAttachmentImages } from '$lib/markdown/resolve-attachment-images';
 	import { remarkLiteralHtml } from '$lib/markdown/literal-html';
-	import { copyCodeToClipboard, preprocessLaTeX } from '$lib/utils';
+	import { copyCodeToClipboard, preprocessLaTeX, getImageErrorFallbackHtml } from '$lib/utils';
 	import '$styles/katex-custom.scss';
 	import githubDarkCss from 'highlight.js/styles/github-dark.css?inline';
 	import githubLightCss from 'highlight.js/styles/github.css?inline';
 	import { mode } from 'mode-watcher';
+	import hljs from 'highlight.js';
 	import CodePreviewDialog from './CodePreviewDialog.svelte';
+	import { createAutoScrollController } from '$lib/hooks/use-auto-scroll.svelte';
+	import type { DatabaseMessage } from '$lib/types/database';
 
 	interface Props {
+		message?: DatabaseMessage;
 		content: string;
 		class?: string;
+		disableMath?: boolean;
 	}
 
 	interface MarkdownBlock {
@@ -32,14 +38,25 @@
 		html: string;
 	}
 
-	let { content, class: className = '' }: Props = $props();
+	interface IncompleteCodeBlock {
+		language: string;
+		code: string;
+		openingIndex: number;
+	}
+
+	let { content, message, class: className = '', disableMath = false }: Props = $props();
 
 	let containerRef = $state<HTMLDivElement>();
 	let renderedBlocks = $state<MarkdownBlock[]>([]);
 	let unstableBlockHtml = $state('');
+	let incompleteCodeBlock = $state<IncompleteCodeBlock | null>(null);
 	let previewDialogOpen = $state(false);
 	let previewCode = $state('');
 	let previewLanguage = $state('text');
+	let streamingCodeScrollContainer = $state<HTMLDivElement>();
+
+	// Auto-scroll controller for streaming code block content
+	const streamingAutoScroll = createAutoScrollController();
 
 	let pendingMarkdown: string | null = null;
 	let isProcessing = false;
@@ -47,17 +64,29 @@
 	const themeStyleId = `highlight-theme-${(window.idxThemeStyle = (window.idxThemeStyle ?? 0) + 1)}`;
 
 	let processor = $derived(() => {
-		return remark()
-			.use(remarkGfm) // GitHub Flavored Markdown
-			.use(remarkMath) // Parse $inline$ and $$block$$ math
+		void message;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let proc: any = remark().use(remarkGfm); // GitHub Flavored Markdown
+
+		if (!disableMath) {
+			proc = proc.use(remarkMath); // Parse $inline$ and $$block$$ math
+		}
+
+		proc = proc
 			.use(remarkBreaks) // Convert line breaks to <br>
 			.use(remarkLiteralHtml) // Treat raw HTML as literal text with preserved indentation
-			.use(remarkRehype) // Convert Markdown AST to rehype
-			.use(rehypeKatex) // Render math using KaTeX
+			.use(remarkRehype); // Convert Markdown AST to rehype
+
+		if (!disableMath) {
+			proc = proc.use(rehypeKatex); // Render math using KaTeX
+		}
+
+		return proc
 			.use(rehypeHighlight) // Add syntax highlighting
 			.use(rehypeRestoreTableHtml) // Restore limited HTML (e.g., <br>, <ul>) inside Markdown tables
 			.use(rehypeEnhanceLinks) // Add target="_blank" to links
 			.use(rehypeEnhanceCodeBlocks) // Wrap code blocks with header and actions
+			.use(rehypeResolveAttachmentImages, { message })
 			.use(rehypeStringify, { allowDangerousHtml: true }); // Convert to HTML string
 	});
 
@@ -197,6 +226,72 @@
 	}
 
 	/**
+	 * Highlights code using highlight.js
+	 * @param code - The code to highlight
+	 * @param language - The programming language
+	 * @returns HTML string with syntax highlighting
+	 */
+	function highlightCode(code: string, language: string): string {
+		if (!code) return '';
+
+		try {
+			const lang = language.toLowerCase();
+			const isSupported = hljs.getLanguage(lang);
+
+			if (isSupported) {
+				return hljs.highlight(code, { language: lang }).value;
+			} else {
+				return hljs.highlightAuto(code).value;
+			}
+		} catch {
+			// Fallback to escaped plain text
+			return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		}
+	}
+
+	/**
+	 * Detects if markdown ends with an incomplete code block (opened but not closed).
+	 * Returns the code block info if found, null otherwise.
+	 * @param markdown - The raw markdown string to check
+	 * @returns IncompleteCodeBlock info or null
+	 */
+	function detectIncompleteCodeBlock(markdown: string): IncompleteCodeBlock | null {
+		// Count all code fences in the markdown
+		// A code block is incomplete if there's an odd number of ``` fences
+		const fencePattern = /^```|\n```/g;
+		const fences: number[] = [];
+		let fenceMatch;
+
+		while ((fenceMatch = fencePattern.exec(markdown)) !== null) {
+			// Store the position after the ```
+			const pos = fenceMatch[0].startsWith('\n') ? fenceMatch.index + 1 : fenceMatch.index;
+			fences.push(pos);
+		}
+
+		// If even number of fences (including 0), all code blocks are closed
+		if (fences.length % 2 === 0) {
+			return null;
+		}
+
+		// Odd number means last code block is incomplete
+		// The last fence is the opening of the incomplete block
+		const openingIndex = fences[fences.length - 1];
+		const afterOpening = markdown.slice(openingIndex + 3);
+
+		// Extract language and code content
+		const langMatch = afterOpening.match(/^(\w*)\n?/);
+		const language = langMatch?.[1] || 'text';
+		const codeStartIndex = openingIndex + 3 + (langMatch?.[0]?.length ?? 0);
+		const code = markdown.slice(codeStartIndex);
+
+		return {
+			language,
+			code,
+			openingIndex
+		};
+	}
+
+	/**
 	 * Handles click events on preview buttons within HTML code blocks.
 	 * Opens a preview dialog with the rendered HTML content.
 	 * @param event - The click event from the preview button
@@ -225,14 +320,59 @@
 	/**
 	 * Processes markdown content into stable and unstable HTML blocks.
 	 * Uses incremental rendering: stable blocks are cached, unstable block is re-rendered.
+	 * Incomplete code blocks are rendered using SyntaxHighlightedCode to maintain interactivity.
 	 * @param markdown - The raw markdown string to process
 	 */
 	async function processMarkdown(markdown: string) {
 		if (!markdown) {
 			renderedBlocks = [];
 			unstableBlockHtml = '';
+			incompleteCodeBlock = null;
 			return;
 		}
+
+		// Check for incomplete code block at the end of content
+		const incompleteBlock = detectIncompleteCodeBlock(markdown);
+
+		if (incompleteBlock) {
+			// Process only the prefix (content before the incomplete code block)
+			const prefixMarkdown = markdown.slice(0, incompleteBlock.openingIndex);
+
+			if (prefixMarkdown.trim()) {
+				const normalizedPrefix = preprocessLaTeX(prefixMarkdown);
+				const processorInstance = processor();
+				const ast = processorInstance.parse(normalizedPrefix) as MdastRoot;
+				const processedRoot = (await processorInstance.run(ast)) as HastRoot;
+				const processedChildren = processedRoot.children ?? [];
+				const nextBlocks: MarkdownBlock[] = [];
+
+				// All prefix blocks are now stable since code block is separate
+				for (let index = 0; index < processedChildren.length; index++) {
+					const hastChild = processedChildren[index];
+					const id = getHastNodeId(hastChild, index);
+					const existing = renderedBlocks[index];
+
+					if (existing && existing.id === id) {
+						nextBlocks.push(existing);
+						continue;
+					}
+
+					const html = stringifyProcessedNode(processorInstance, processedRoot, hastChild);
+					nextBlocks.push({ id, html });
+				}
+
+				renderedBlocks = nextBlocks;
+			} else {
+				renderedBlocks = [];
+			}
+
+			unstableBlockHtml = '';
+			incompleteCodeBlock = incompleteBlock;
+			return;
+		}
+
+		// No incomplete code block - use standard processing
+		incompleteCodeBlock = null;
 
 		const normalized = preprocessLaTeX(markdown);
 		const processorInstance = processor();
@@ -296,6 +436,43 @@
 				previewButton.addEventListener('click', handlePreviewClick);
 			}
 		}
+	}
+
+	/**
+	 * Attaches error handlers to images to show fallback UI when loading fails (e.g., CORS).
+	 * Uses data-error-bound attribute to prevent duplicate bindings.
+	 */
+	function setupImageErrorHandlers() {
+		if (!containerRef) return;
+
+		const images = containerRef.querySelectorAll<HTMLImageElement>('img:not([data-error-bound])');
+
+		for (const img of images) {
+			img.dataset.errorBound = 'true';
+			img.addEventListener('error', handleImageError);
+		}
+	}
+
+	/**
+	 * Handles image load errors by replacing the image with a fallback UI.
+	 * Shows a placeholder with a link to open the image in a new tab.
+	 */
+	function handleImageError(event: Event) {
+		const img = event.target as HTMLImageElement;
+		if (!img || !img.src) return;
+
+		// Don't handle data URLs or already-handled images
+		if (img.src.startsWith('data:') || img.dataset.errorHandled === 'true') return;
+		img.dataset.errorHandled = 'true';
+
+		const src = img.src;
+		// Create fallback element
+		const fallback = document.createElement('div');
+		fallback.className = 'image-load-error';
+		fallback.innerHTML = getImageErrorFallbackHtml(src);
+
+		// Replace image with fallback
+		img.parentNode?.replaceChild(fallback, img);
 	}
 
 	/**
@@ -366,12 +543,23 @@
 
 		if ((hasRenderedBlocks || hasUnstableBlock) && containerRef) {
 			setupCodeBlockActions();
+			setupImageErrorHandlers();
 		}
+	});
+
+	// Auto-scroll for streaming code block
+	$effect(() => {
+		streamingAutoScroll.setContainer(streamingCodeScrollContainer);
+	});
+
+	$effect(() => {
+		streamingAutoScroll.updateInterval(incompleteCodeBlock !== null);
 	});
 
 	onDestroy(() => {
 		cleanupEventListeners();
 		cleanupHighlightTheme();
+		streamingAutoScroll.destroy();
 	});
 </script>
 
@@ -389,6 +577,79 @@
 			{@html unstableBlockHtml}
 		</div>
 	{/if}
+
+	{#if incompleteCodeBlock}
+		<div class="code-block-wrapper streaming-code-block relative">
+			<div class="code-block-header">
+				<span class="code-language">{incompleteCodeBlock.language || 'text'}</span>
+				<div class="code-block-actions">
+					<button
+						class="copy-code-btn"
+						title="Copy code"
+						aria-label="Copy code"
+						type="button"
+						onclick={() => copyCodeToClipboard(incompleteCodeBlock?.code ?? '')}
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path
+								d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+							/></svg
+						>
+					</button>
+					{#if incompleteCodeBlock.language?.toLowerCase() === 'html'}
+						<button
+							class="preview-code-btn"
+							title="Preview code"
+							aria-label="Preview code"
+							type="button"
+							onclick={() => {
+								previewCode = incompleteCodeBlock?.code ?? '';
+								previewLanguage = incompleteCodeBlock?.language ?? 'html';
+								previewDialogOpen = true;
+							}}
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								><path
+									d="M2.062 12.345a1 1 0 0 1 0-.69C3.5 7.73 7.36 5 12 5s8.5 2.73 9.938 6.655a1 1 0 0 1 0 .69C20.5 16.27 16.64 19 12 19s-8.5-2.73-9.938-6.655"
+								/><circle cx="12" cy="12" r="3" /></svg
+							>
+						</button>
+					{/if}
+				</div>
+			</div>
+			<div
+				bind:this={streamingCodeScrollContainer}
+				class="streaming-code-scroll-container"
+				onscroll={() => streamingAutoScroll.handleScroll()}
+			>
+				<pre class="streaming-code-pre"><code
+						class="hljs language-{incompleteCodeBlock.language || 'text'}"
+						>{@html highlightCode(
+							incompleteCodeBlock.code,
+							incompleteCodeBlock.language || 'text'
+						)}</code
+					></pre>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <CodePreviewDialog
@@ -404,9 +665,20 @@
 		display: contents;
 	}
 
+	/* Streaming code block uses .code-block-wrapper styles */
+	.streaming-code-block .streaming-code-pre {
+		background: transparent;
+		padding: 0.5rem;
+		margin: 0;
+		overflow-x: visible;
+		border-radius: 0;
+		border: none;
+		font-size: 0.875rem;
+	}
+
 	/* Base typography styles */
-	div :global(p:not(:last-child)) {
-		margin-bottom: 1rem;
+	div :global(p) {
+		margin-block: 1rem;
 		line-height: 1.75;
 	}
 
@@ -480,12 +752,35 @@
 			'Liberation Mono', Menlo, monospace;
 	}
 
+	div :global(pre) {
+		display: inline;
+		margin: 0 !important;
+		overflow: hidden !important;
+		background: var(--muted);
+		overflow-x: auto;
+		border-radius: 1rem;
+		border: none;
+		line-height: 1 !important;
+	}
+
+	div :global(pre code) {
+		padding: 0 !important;
+		display: inline !important;
+	}
+
+	div :global(code) {
+		background: transparent;
+		color: var(--code-foreground);
+	}
+
 	/* Links */
 	div :global(a) {
 		color: var(--primary);
 		text-decoration: underline;
 		text-underline-offset: 2px;
 		transition: color 0.2s ease;
+		overflow-wrap: anywhere;
+		word-break: break-all;
 	}
 
 	div :global(a:hover) {
@@ -609,22 +904,40 @@
 		margin: 1.5rem 0;
 		border-radius: 0.75rem;
 		overflow: hidden;
-		border: 1px solid var(--border);
+		border: 1px solid color-mix(in oklch, var(--border) 30%, transparent);
 		background: var(--code-background);
+		box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+		max-height: var(--max-message-height);
+	}
+
+	:global(.dark) div :global(.code-block-wrapper) {
+		border-color: color-mix(in oklch, var(--border) 20%, transparent);
+	}
+
+	/* Scroll container for code blocks (both streaming and completed) */
+	div :global(.code-block-scroll-container),
+	.streaming-code-scroll-container {
+		max-height: var(--max-message-height);
+		overflow-y: auto;
+		overflow-x: auto;
+		padding: 3rem 1rem 1rem;
+		line-height: 1.3;
 	}
 
 	div :global(.code-block-header) {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.5rem 1rem;
-		background: hsl(var(--muted) / 0.5);
-		border-bottom: 1px solid var(--border);
+		padding: 0.5rem 1rem 0;
 		font-size: 0.875rem;
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
 	}
 
 	div :global(.code-language) {
-		color: var(--code-foreground);
+		color: var(--color-foreground);
 		font-weight: 500;
 		font-family:
 			ui-monospace, SFMono-Regular, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas,
@@ -664,26 +977,10 @@
 
 	div :global(.code-block-wrapper pre) {
 		background: transparent;
-		padding: 1rem;
 		margin: 0;
-		overflow-x: auto;
 		border-radius: 0;
 		border: none;
 		font-size: 0.875rem;
-		line-height: 1.5;
-	}
-
-	div :global(pre) {
-		background: var(--muted);
-		margin: 1.5rem 0;
-		overflow-x: auto;
-		border-radius: 1rem;
-		border: none;
-	}
-
-	div :global(code) {
-		background: transparent;
-		color: var(--code-foreground);
 	}
 
 	/* Mentions and hashtags */
@@ -866,5 +1163,54 @@
 		div :global(blockquote:hover) {
 			background: var(--muted);
 		}
+	}
+
+	/* Image load error fallback */
+	div :global(.image-load-error) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 1.5rem 0;
+		padding: 1.5rem;
+		border-radius: 0.5rem;
+		background: var(--muted);
+		border: 1px dashed var(--border);
+	}
+
+	div :global(.image-error-content) {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		color: var(--muted-foreground);
+		text-align: center;
+	}
+
+	div :global(.image-error-content svg) {
+		opacity: 0.5;
+	}
+
+	div :global(.image-error-text) {
+		font-size: 0.875rem;
+	}
+
+	div :global(.image-error-link) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.5rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--primary);
+		background: var(--background);
+		border: 1px solid var(--border);
+		border-radius: 0.375rem;
+		text-decoration: none;
+		transition: all 0.2s ease;
+	}
+
+	div :global(.image-error-link:hover) {
+		background: var(--muted);
+		border-color: var(--primary);
 	}
 </style>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { afterNavigate } from '$app/navigation';
 	import {
-		ChatForm,
+		ChatScreenForm,
 		ChatScreenHeader,
 		ChatMessages,
 		ChatScreenProcessingInfo,
@@ -12,11 +12,8 @@
 	} from '$lib/components/app';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import {
-		AUTO_SCROLL_AT_BOTTOM_THRESHOLD,
-		AUTO_SCROLL_INTERVAL,
-		INITIAL_SCROLL_DELAY
-	} from '$lib/constants/auto-scroll';
+	import { INITIAL_SCROLL_DELAY } from '$lib/constants/auto-scroll';
+	import { createAutoScrollController } from '$lib/hooks/use-auto-scroll.svelte';
 	import {
 		chatStore,
 		errorDialog,
@@ -42,16 +39,13 @@
 	let { showCenteredEmpty = false } = $props();
 
 	let disableAutoScroll = $derived(Boolean(config().disableAutoScroll));
-	let autoScrollEnabled = $state(true);
 	let chatScrollContainer: HTMLDivElement | undefined = $state();
 	let dragCounter = $state(0);
 	let isDragOver = $state(false);
-	let lastScrollTop = $state(0);
-	let scrollInterval: ReturnType<typeof setInterval> | undefined;
-	let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
 	let showFileErrorDialog = $state(false);
 	let uploadedFiles = $state<ChatUploadedFile[]>([]);
-	let userScrolledUp = $state(false);
+
+	const autoScroll = createAutoScrollController();
 
 	let fileErrorData = $state<{
 		generallyUnsupported: File[];
@@ -70,6 +64,8 @@
 	let showEmptyFileDialog = $state(false);
 
 	let emptyFileNames = $state<string[]>([]);
+
+	let initialMessage = $state('');
 
 	let isEmpty = $derived(
 		showCenteredEmpty && !activeConversation() && activeMessages().length === 0 && !isLoading()
@@ -221,38 +217,22 @@
 		}
 	}
 
+	async function handleSystemPromptAdd(draft: { message: string; files: ChatUploadedFile[] }) {
+		if (draft.message || draft.files.length > 0) {
+			chatStore.savePendingDraft(draft.message, draft.files);
+		}
+
+		await chatStore.addSystemPrompt();
+	}
+
 	function handleScroll() {
-		if (disableAutoScroll || !chatScrollContainer) return;
-
-		const { scrollTop, scrollHeight, clientHeight } = chatScrollContainer;
-		const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-		const isAtBottom = distanceFromBottom < AUTO_SCROLL_AT_BOTTOM_THRESHOLD;
-
-		if (scrollTop < lastScrollTop && !isAtBottom) {
-			userScrolledUp = true;
-			autoScrollEnabled = false;
-		} else if (isAtBottom && userScrolledUp) {
-			userScrolledUp = false;
-			autoScrollEnabled = true;
-		}
-
-		if (scrollTimeout) {
-			clearTimeout(scrollTimeout);
-		}
-
-		scrollTimeout = setTimeout(() => {
-			if (isAtBottom) {
-				userScrolledUp = false;
-				autoScrollEnabled = true;
-			}
-		}, AUTO_SCROLL_INTERVAL);
-
-		lastScrollTop = scrollTop;
+		autoScroll.handleScroll();
 	}
 
 	async function handleSendMessage(message: string, files?: ChatUploadedFile[]): Promise<boolean> {
-		const result = files
-			? await parseFilesToMessageExtras(files, activeModelId ?? undefined)
+		const plainFiles = files ? $state.snapshot(files) : undefined;
+		const result = plainFiles
+			? await parseFilesToMessageExtras(plainFiles, activeModelId ?? undefined)
 			: undefined;
 
 		if (result?.emptyFiles && result.emptyFiles.length > 0) {
@@ -269,12 +249,9 @@
 		const extras = result?.extras;
 
 		// Enable autoscroll for user-initiated message sending
-		if (!disableAutoScroll) {
-			userScrolledUp = false;
-			autoScrollEnabled = true;
-		}
+		autoScroll.enable();
 		await chatStore.sendMessage(message, extras);
-		scrollChatToBottom();
+		autoScroll.scrollToBottom();
 
 		return true;
 	}
@@ -324,43 +301,34 @@
 		}
 	}
 
-	function scrollChatToBottom(behavior: ScrollBehavior = 'smooth') {
-		if (disableAutoScroll) return;
-
-		chatScrollContainer?.scrollTo({
-			top: chatScrollContainer?.scrollHeight,
-			behavior
-		});
-	}
-
 	afterNavigate(() => {
 		if (!disableAutoScroll) {
-			setTimeout(() => scrollChatToBottom('instant'), INITIAL_SCROLL_DELAY);
+			setTimeout(() => autoScroll.scrollToBottom('instant'), INITIAL_SCROLL_DELAY);
 		}
 	});
 
 	onMount(() => {
 		if (!disableAutoScroll) {
-			setTimeout(() => scrollChatToBottom('instant'), INITIAL_SCROLL_DELAY);
+			setTimeout(() => autoScroll.scrollToBottom('instant'), INITIAL_SCROLL_DELAY);
+		}
+
+		const pendingDraft = chatStore.consumePendingDraft();
+		if (pendingDraft) {
+			initialMessage = pendingDraft.message;
+			uploadedFiles = pendingDraft.files;
 		}
 	});
 
 	$effect(() => {
-		if (disableAutoScroll) {
-			autoScrollEnabled = false;
-			if (scrollInterval) {
-				clearInterval(scrollInterval);
-				scrollInterval = undefined;
-			}
-			return;
-		}
+		autoScroll.setContainer(chatScrollContainer);
+	});
 
-		if (isCurrentConversationLoading && autoScrollEnabled) {
-			scrollInterval = setInterval(scrollChatToBottom, AUTO_SCROLL_INTERVAL);
-		} else if (scrollInterval) {
-			clearInterval(scrollInterval);
-			scrollInterval = undefined;
-		}
+	$effect(() => {
+		autoScroll.setDisabled(disableAutoScroll);
+	});
+
+	$effect(() => {
+		autoScroll.updateInterval(isCurrentConversationLoading);
 	});
 </script>
 
@@ -388,11 +356,8 @@
 			class="mb-16 md:mb-24"
 			messages={activeMessages()}
 			onUserAction={() => {
-				if (!disableAutoScroll) {
-					userScrolledUp = false;
-					autoScrollEnabled = true;
-					scrollChatToBottom();
-				}
+				autoScroll.enable();
+				autoScroll.scrollToBottom();
 			}}
 		/>
 
@@ -426,13 +391,15 @@
 			{/if}
 
 			<div class="conversation-chat-form pointer-events-auto rounded-t-3xl pb-4">
-				<ChatForm
+				<ChatScreenForm
 					disabled={hasPropsError || isEditing()}
+					{initialMessage}
 					isLoading={isCurrentConversationLoading}
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}
 					onSend={handleSendMessage}
 					onStop={() => chatStore.stopGeneration()}
+					onSystemPromptAdd={handleSystemPromptAdd}
 					showHelperText={false}
 					bind:uploadedFiles
 				/>
@@ -454,7 +421,7 @@
 	>
 		<div class="w-full max-w-[48rem] px-4">
 			<div class="mb-10 text-center" in:fade={{ duration: 300 }}>
-				<h1 class="mb-4 text-3xl font-semibold tracking-tight">llama.cpp</h1>
+				<h1 class="mb-2 text-3xl font-semibold tracking-tight">llama.cpp</h1>
 
 				<p class="text-lg text-muted-foreground">
 					{serverStore.props?.modalities?.audio
@@ -484,13 +451,15 @@
 			{/if}
 
 			<div in:fly={{ y: 10, duration: 250, delay: hasPropsError ? 0 : 300 }}>
-				<ChatForm
+				<ChatScreenForm
 					disabled={hasPropsError}
+					{initialMessage}
 					isLoading={isCurrentConversationLoading}
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}
 					onSend={handleSendMessage}
 					onStop={() => chatStore.stopGeneration()}
+					onSystemPromptAdd={handleSystemPromptAdd}
 					showHelperText={true}
 					bind:uploadedFiles
 				/>
