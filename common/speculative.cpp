@@ -6,6 +6,7 @@
 #include "log.h"
 #include "ngram-cache.h"
 #include "ngram-map.h"
+#include "ngram-mod.h"
 #include "sampling.h"
 
 #include <algorithm>
@@ -23,6 +24,7 @@ const std::vector<enum common_speculative_type> common_speculative_types = {
     COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE,
     COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K,
     COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V,
+    COMMON_SPECULATIVE_TYPE_NGRAM_MOD,
     COMMON_SPECULATIVE_TYPE_NGRAM_CACHE
 };
 
@@ -33,6 +35,7 @@ const std::map<std::string, enum common_speculative_type> common_speculative_typ
     {"ngram_simple",  COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE},
     {"ngram_map_k",   COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K},
     {"ngram_map_k4v", COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V},
+    {"ngram_mod",     COMMON_SPECULATIVE_TYPE_NGRAM_MOD},
     {"ngram_cache",   COMMON_SPECULATIVE_TYPE_NGRAM_CACHE}
 };
 
@@ -509,6 +512,131 @@ struct common_speculative_state_ngram_map_k : public common_speculative_state {
     }
 };
 
+struct common_speculative_state_ngram_mod : public common_speculative_state {
+    common_ngram_mod & mod;
+
+    // the last position in the prompt that was added to the ngram container
+    size_t i_last = 0;
+
+    // length of the last drafted n‑gram (number of tokens returned by draft)
+    size_t n_draft_last = 0;
+
+    // consecutive accept rounds with low acceptance fraction (< 0.5)
+    int n_low = 0;
+
+    // enable trace logging if LLAMA_TRACE is set
+    const bool verbose;
+
+    common_speculative_state_ngram_mod(enum common_speculative_type type, common_ngram_mod & mod)
+        : common_speculative_state(type), mod(mod), verbose(std::getenv("LLAMA_TRACE") != nullptr) {
+        static_assert(sizeof(llama_token) == sizeof(common_ngram_mod::entry_t));
+    }
+
+    void begin(const llama_tokens & prompt) override {
+        i_last = 0;
+
+        n_draft_last = 0;
+
+        const size_t n = mod.get_n();
+
+        if (prompt.size() < n) {
+            return;
+        }
+
+        for (size_t i = 0; i < prompt.size() - n; ++i) {
+            mod.add(prompt.data() + i);
+        }
+
+        i_last = prompt.size() - n;
+
+        const double f = (double)mod.get_used() / (double)mod.size();
+        LOG_INF("%s: ngram_mod occupancy = %zu/%zu (%.2f)\n", __func__, mod.get_used(), mod.size(), f);
+
+        constexpr double f_thold = 0.25;
+        if (f > f_thold) {
+            LOG_WRN("%s: ngram_mod occupancy %.2f exceeds threshold (%.2f) - resetting\n", __func__, f, f_thold);
+
+            mod.reset();
+        }
+    }
+
+    void draft(
+            const common_params_speculative & params,
+            const llama_tokens & prompt_tgt,
+            llama_token id_last,
+            llama_tokens & result) override {
+        GGML_UNUSED(params);
+
+        n_draft_last = 0;
+
+        const size_t cur_len = prompt_tgt.size();
+        if (cur_len < mod.get_n()) {
+            return;
+        }
+
+        const size_t n = mod.get_n();
+
+        // add new ngrams in chunks
+        if (i_last + 16*n < cur_len) {
+            for (size_t i = i_last; i < cur_len - n; ++i) {
+                mod.add(prompt_tgt.data() + i);
+            }
+
+            i_last = cur_len - n;
+        }
+
+        result.resize(n + params.n_max);
+        for (size_t i = 0; i < n - 1; ++i) {
+            result[i] = prompt_tgt[cur_len - n + 1 + i];
+        }
+        result[n - 1] = id_last;
+
+        for (int i = 0; i < params.n_max; ++i) {
+            const llama_token token = mod.get(result.data() + i);
+            if (token == common_ngram_mod::EMPTY) {
+                if (i < params.n_min) {
+                    result.clear();
+                    return;
+                }
+
+                result.resize(n + i);
+                break;
+            }
+            result[n + i] = token;
+        }
+
+        // only return the m tokens that were drafted
+        for (size_t i = 0; n + i < result.size(); ++i) {
+            result[i] = result[n + i];
+        }
+        result.resize(result.size() - n);
+
+        // store length of drafted n‑gram for later acceptance analysis
+        n_draft_last = result.size();
+    }
+
+    void accept(uint16_t n_accepted) override {
+        if (verbose) {
+            LOG_INF("%s: accepted %d tokens from %zu drafted tokens\n", __func__, n_accepted, n_draft_last);
+        }
+
+        // compute acceptance fraction if we have a recorded draft length
+        if (n_draft_last > 0) {
+            const double f_acc = (double)n_accepted / (double)n_draft_last;
+            if (f_acc < 0.5) {
+                n_low++;
+                if (n_low >= 3) {
+                    LOG_WRN("%s: low acceptance streak (%d) – resetting ngram_mod\n", __func__, n_low);
+                    mod.reset();
+                    n_low = 0;
+                }
+            } else {
+                n_low = 0;
+            }
+        }
+    }
+};
+
 struct common_speculative_state_ngram_cache : public common_speculative_state {
     uint16_t n_draft;
     bool save_dynamic;
@@ -650,6 +778,7 @@ std::string common_speculative_type_to_str(enum common_speculative_type type) {
         case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE:  return "ngram_simple";
         case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K:   return "ngram_map_k";
         case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V: return "ngram_map_k4v";
+        case COMMON_SPECULATIVE_TYPE_NGRAM_MOD:     return "ngram_mod";
         case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE:   return "ngram_cache";
         default:                                    return "unknown";
     }
@@ -666,8 +795,8 @@ enum common_speculative_type common_speculative_type_from_name(const std::string
 // initialization of the speculative decoding system
 //
 common_speculative * common_speculative_init(
-        const common_params_speculative & params,
-              llama_context             * ctx_tgt) {
+        common_params_speculative & params,
+        llama_context             * ctx_tgt) {
     llama_context * ctx_dft = nullptr;
     if (params.model_dft) {
         ctx_dft = llama_init_from_model(params.model_dft, params.cparams_dft);
@@ -687,6 +816,7 @@ common_speculative * common_speculative_init(
         bool has_ngram_simple  = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE);
         bool has_ngram_map_k   = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K);
         bool has_ngram_map_k4v = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V);
+        bool has_ngram_mod     = (params.type == COMMON_SPECULATIVE_TYPE_NGRAM_MOD);
 
         // In a more complex implementation we could use the same implementation but with different parameters.
         // This was initially used in PR-18471 but removed to simplify the code.
@@ -700,6 +830,18 @@ common_speculative * common_speculative_init(
         if (has_ngram_map_k4v) {
             // This implementation can guess tokens with high acceptance rate but is more expensive.
             configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V, params));
+        }
+        if (has_ngram_mod) {
+            // shared instance for all speculative decoding contexts
+            if (!params.ngram_mod) {
+                params.ngram_mod = std::make_shared<common_ngram_mod>(params.ngram_size_n, 4*1024*1024);
+
+                LOG_INF("%s: initialized ngram_mod with n=%d, size=%zu (%.3f MB)\n", __func__,
+                        params.ngram_size_n, params.ngram_mod->size(),
+                        (float)(params.ngram_mod->size_bytes())/1024/1024);
+            }
+
+            configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_MOD, params));
         }
         if (has_ngram_cache) {
             configs.push_back(common_speculative_config(COMMON_SPECULATIVE_TYPE_NGRAM_CACHE, params));
@@ -756,6 +898,11 @@ common_speculative * common_speculative_init(
                     (config.type),
                     get_common_ngram_map(config)
                 ));
+                break;
+            }
+            case COMMON_SPECULATIVE_TYPE_NGRAM_MOD: {
+                GGML_ASSERT(config.params.ngram_mod);
+                impls.push_back(std::make_unique<common_speculative_state_ngram_mod>(config.type, *config.params.ngram_mod));
                 break;
             }
             case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE: {
