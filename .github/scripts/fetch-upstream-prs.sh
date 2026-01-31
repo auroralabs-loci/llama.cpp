@@ -154,7 +154,7 @@ while true; do
       echo "Quota of ${max_pulls} reached, stopping."
       break 2
     fi
-  done < <(echo "$pulls" | jq -c '.[]')
+  done < <(echo "$pulls" | jq -c '.[]' 2>/dev/null)
 
   # In manual mode, we only process one PR, so break after first iteration
   if [ "$manual_mode" -eq 1 ]; then
