@@ -2,11 +2,6 @@
 #include "virtgpu-shm.h"
 
 int apir_device_get_count(virtgpu * gpu) {
-    static int32_t dev_count = -1;
-    if (dev_count != -1) {
-        return dev_count;
-    }
-
     apir_encoder *        encoder;
     apir_decoder *        decoder;
     ApirForwardReturnCode ret;
@@ -14,6 +9,7 @@ int apir_device_get_count(virtgpu * gpu) {
     REMOTE_CALL_PREPARE(gpu, encoder, APIR_COMMAND_TYPE_DEVICE_GET_COUNT);
     REMOTE_CALL(gpu, encoder, decoder, ret);
 
+    int32_t dev_count = -1;
     apir_decode_int32_t(decoder, &dev_count);
 
     remote_call_finish(gpu, encoder, decoder);
@@ -21,11 +17,7 @@ int apir_device_get_count(virtgpu * gpu) {
     return dev_count;
 }
 
-const char * apir_device_get_name(virtgpu * gpu) {
-    static char * string = nullptr;
-    if (string) {
-        return string;
-    }
+char * apir_device_get_name(virtgpu * gpu) {
     apir_encoder *        encoder;
     apir_decoder *        decoder;
     ApirForwardReturnCode ret;
@@ -34,7 +26,7 @@ const char * apir_device_get_name(virtgpu * gpu) {
     REMOTE_CALL(gpu, encoder, decoder, ret);
 
     const size_t string_size = apir_decode_array_size_unchecked(decoder);
-    string                   = (char *) apir_decoder_alloc_array(sizeof(char), string_size);
+    char            * string = (char *) apir_decoder_alloc_array(sizeof(char), string_size);
     if (!string) {
         GGML_LOG_ERROR("%s: Could not allocate the device name buffer\n", __func__);
         return NULL;
@@ -46,7 +38,7 @@ const char * apir_device_get_name(virtgpu * gpu) {
     return string;
 }
 
-const char * apir_device_get_description(virtgpu * gpu) {
+char * apir_device_get_description(virtgpu * gpu) {
     apir_encoder *        encoder;
     apir_decoder *        decoder;
     ApirForwardReturnCode ret;
