@@ -24,7 +24,10 @@ SCRIPT_DIR="$(dirname "$0")"
 SYNC_LOCI_MAIN_SCRIPT="/tmp/sync-loci-main.sh"
 cp "$SCRIPT_DIR/sync-loci-main.sh" "$SYNC_LOCI_MAIN_SCRIPT"
 
+#--------------------------------------------------#
 git checkout -B main "${UPSTREAM_SHA}"
+#--------------------------------------------------#
+
 git restore --source "refs/remotes/origin/overlay" -- .github/workflows/loci-analysis.yml || true
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
@@ -40,6 +43,10 @@ else
   echo "Updating origin main to: ${current_sha} (upstream: ${UPSTREAM_SHA} + loci-analysis.yml)."
   git push origin "main:refs/heads/main" --force
 fi
+
+#--------------------------------------------------#
+git checkout origin/overlay -- .
+#--------------------------------------------------#
 
 # --- Create/update loci/main-* branch with overlay ---
 

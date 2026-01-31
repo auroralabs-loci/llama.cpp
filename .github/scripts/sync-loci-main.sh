@@ -37,13 +37,20 @@ else
   echo "Creating ${loci_main_branch} from commit: ${base_sha}." >&2
 fi
 
+#--------------------------------------------------#
 git checkout -B "${loci_main_branch}" "${base_sha}"
+#--------------------------------------------------#
+
 git restore --source refs/remotes/origin/overlay -- .github/workflows/loci-analysis.yml || true
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
   git commit -m "Add loci-analysis workflow from overlay"
 fi
 git push origin "${loci_main_branch}" --force
+
+#--------------------------------------------------#
+git checkout origin/overlay -- .
+#--------------------------------------------------#
 
 echo "$loci_main_branch"
 exit 1 # branch was updated/created
