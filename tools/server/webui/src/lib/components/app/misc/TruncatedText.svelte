@@ -36,6 +36,7 @@
 				{text}
 			</span>
 		</Tooltip.Trigger>
+
 		<Tooltip.Content class="z-[9999]">
 			<p>{text}</p>
 		</Tooltip.Content>
