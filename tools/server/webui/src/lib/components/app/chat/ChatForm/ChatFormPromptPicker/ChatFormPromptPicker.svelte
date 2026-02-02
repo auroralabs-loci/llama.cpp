@@ -84,6 +84,7 @@
 
 			if (!initialized) {
 				prompts = [];
+
 				return;
 			}
 
