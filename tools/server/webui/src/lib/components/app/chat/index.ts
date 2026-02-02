@@ -96,7 +96,7 @@ export { default as ChatAttachmentsViewAll } from './ChatAttachments/ChatAttachm
  * FORM
  *
  * Components for the chat input area. The form handles user input, file attachments,
- * audio recording, and MCP prompt selection. It integrates with multiple stores:
+ * audio recording, and MCP prompts & resources selection. It integrates with multiple stores:
  * - `chatStore` for message submission and generation control
  * - `modelsStore` for model selection and validation
  * - `mcpStore` for MCP prompt browsing and loading
