@@ -614,12 +614,14 @@ export class MCPService {
 	static async unsubscribeResource(connection: MCPConnection, uri: string): Promise<void> {
 		try {
 			await connection.client.unsubscribeResource({ uri });
+
 			console.log(`[MCPService][${connection.serverName}] Unsubscribed from resource: ${uri}`);
 		} catch (error) {
 			console.error(
 				`[MCPService][${connection.serverName}] Failed to unsubscribe from resource:`,
 				error
 			);
+
 			throw error;
 		}
 	}
