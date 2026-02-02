@@ -8671,8 +8671,11 @@ static void ggml_compute_forward_flash_attn_ext_f16(
     const int ith = params->ith;
     const int nth = params->nth;
 
+    // When use_ref is set, force the vec-only reference implementation (no tiling, no KV-chunking)
+    const bool use_ref = params->use_ref;
+
     const bool kv_is_f32_or_f16 = (k->type == GGML_TYPE_F32 || k->type == GGML_TYPE_F16);
-    const bool use_split_kv_path = (neq1 == 1 && neq3 == 1) && kv_is_f32_or_f16 && (k->type == v->type) && q->type == GGML_TYPE_F32 && nek1 >= 512;
+    const bool use_split_kv_path = !use_ref && (neq1 == 1 && neq3 == 1) && kv_is_f32_or_f16 && (k->type == v->type) && q->type == GGML_TYPE_F32 && nek1 >= 512;
 
     if (use_split_kv_path) {
         const int64_t chunk_size = (nek1 + nth - 1) / nth;
@@ -8730,7 +8733,8 @@ static void ggml_compute_forward_flash_attn_ext_f16(
 
         static constexpr int64_t KV_TILE_SZ = ggml_fa_tile_config::KV;
         static constexpr int64_t Q_TILE_SZ  = ggml_fa_tile_config::Q;
-        const bool use_tiled = (q->type == GGML_TYPE_F32 &&
+        const bool use_tiled = !use_ref &&
+                               (q->type == GGML_TYPE_F32 &&
                                 kv_is_f32_or_f16 &&
                                 k->type == v->type &&
                                 nek1 % KV_TILE_SZ == 0 &&
