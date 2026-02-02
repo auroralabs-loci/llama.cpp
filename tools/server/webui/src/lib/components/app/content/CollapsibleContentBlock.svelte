@@ -78,6 +78,7 @@
 				})}
 			>
 				<ChevronsUpDownIcon class="h-4 w-4" />
+
 				<span class="sr-only">Toggle content</span>
 			</div>
 		</Collapsible.Trigger>
