@@ -153,6 +153,9 @@
 			<Dialog.Title class="flex items-center gap-2">
 				<FolderOpen class="h-5 w-5" />
 
+			<Dialog.Title class="flex items-center gap-2">
+				<FolderOpen class="h-5 w-5" />
+
 				<span>MCP Resources</span>
 
 				{#if totalCount > 0}
