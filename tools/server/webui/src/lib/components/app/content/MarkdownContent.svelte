@@ -416,6 +416,7 @@
 				{ position: (child as { position?: unknown }).position } as HastRootContent,
 				index
 			);
+
 			nextBlocks.push({ id, html, contentHash: hash });
 		}
 
