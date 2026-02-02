@@ -104,6 +104,7 @@
 		if (selectedResources.size === 0) return;
 
 		isAttaching = true;
+
 		try {
 			const allResources = getAllResourcesFlat();
 			const resourcesToAttach = allResources.filter((r) => selectedResources.has(r.uri));
