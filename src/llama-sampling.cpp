@@ -1208,7 +1208,7 @@ static void llama_sampler_dist_backend_set_input(struct llama_sampler * smpl) {
     // std::uniform_real_distribution<double> and
     // std::uniform_real_distribution<float> with same rng will produce
     // different sequences).
-    std::uniform_real_distribution<double> dist(0.0f, 1.0f);
+    std::uniform_real_distribution<double> dist(0.0f, 0.99f);
     const float rnd = dist(sctx->rng);
 
     ggml_backend_tensor_set(sctx->inp_uniform, &rnd, 0, sizeof(float));
