@@ -457,9 +457,11 @@ export class MCPService {
 				ref,
 				argument
 			});
+
 			return result.completion;
 		} catch (error) {
 			console.error(`[MCPService] Failed to get completions:`, error);
+
 			return null;
 		}
 	}
