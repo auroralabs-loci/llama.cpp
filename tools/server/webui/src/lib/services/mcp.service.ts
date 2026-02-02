@@ -416,8 +416,10 @@ export class MCPService {
 
 		if (content.type === 'resource' && content.resource) {
 			const resource = content.resource;
+
 			if (resource.text) return resource.text;
 			if (resource.blob) return resource.blob;
+
 			return JSON.stringify(resource);
 		}
 
