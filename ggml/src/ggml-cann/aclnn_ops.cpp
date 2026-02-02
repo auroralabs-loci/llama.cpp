@@ -3286,282 +3286,213 @@ static void ggml_cann_mul_mat_id_fp(ggml_backend_cann_context & ctx, ggml_tensor
 }
 
 /**
- * @brief Performs expert-specific matrix multiplication (MoE) with
- * quantized precision using the CANN backend.
+ * @brief Performs quantized matrix multiplication for Mixture of Experts (MoE)
+ * models using the CANN backend.
  *
- * This function executes a matrix multiplication operation tailored for
- * Mixture of Experts (MoE) models, where the input tensor is multiplied
- * with expert-specific quantized weight matrices. It leverages the CANN
- * backend to perform efficient low-precision computations and stores the
- * quantized result in the destination tensor `dst`.
+ * This function implements MUL_MAT_ID operation for quantized weight matrices
+ * (Q4_0 and Q8_0 formats). It selects expert-specific weight matrices based on
+ * the provided expert indices, and computes matrix multiplication using CANN's
+ * WeightQuantBatchMatmulV2 operator.
  *
- * Quantization techniques reduce memory footprint and improve performance
- * by using lower-bit representations (e.g., int8) instead of floating-point.
- * This function is designed to work with such formats and may incorporate
- * optimizations like identity-based fast paths or routing masks for sparse
- * expert selection.
+ * The function performs the following steps:
+ * 1. Converts input/output tensors to F16 format if necessary
+ * 2. Uses IndexSelect to extract expert-specific weights and scales based on indices
+ * 3. Performs quantized matrix multiplication for each expert using WeightQuantBatchMatmulV2
+ * 4. Converts output back to the target type if needed
  *
- * @param ctx The context for executing CANN backend operations.
- * @param dst The destination tensor where the quantized MoE multiplication result
- * will be stored.
+ * Tensor shapes:
+ * - dst:  [M, K, N, 1] - output tensor
+ * - src0: [D, M, A, 1] - quantized weight matrices (Q4_0 or Q8_0)
+ * - src1: [D, B, N, 1] - input activations (B = K for per-expert input, or B = 1 for broadcast)
+ * - ids:  [K, N] - expert indices for routing
  *
- * @note This function assumes quantized data types and is designed for
- * MoE architectures with potential sparse expert routing.
+ * @param ctx The CANN backend context for operation execution.
+ * @param dst The destination tensor where the multiplication result will be stored.
+ *
+ * @note Only Q4_0 and Q8_0 quantization formats are supported.
+ * @note The function handles automatic type conversion to/from F16 as needed by the hardware.
  */
 static void ggml_cann_mul_mat_id_quant(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
-    //dst   [M, K, N, 1]
-    ggml_tensor * src0 = dst->src[0];  //src0	[D, M, A, 1]
-    ggml_tensor * src1 = dst->src[1];  //src1	[D, B, N, 1], B = K or B = 1
-    ggml_tensor * ids  = dst->src[2];  //ids	[K, N]
+    // dst:  [M, K, N, 1]
+    // src0: [D, M, A, 1] - quantized weights
+    // src1: [D, B, N, 1] - input activations, B = K or B = 1
+    // ids:  [K, N] - expert indices
+    ggml_tensor * src0 = dst->src[0];
+    ggml_tensor * src1 = dst->src[1];
+    ggml_tensor * ids  = dst->src[2];
 
     GGML_ASSERT(src0->ne[3] == 1);
     GGML_ASSERT(src1->ne[3] == 1);
     GGML_ASSERT(dst->ne[3] == 1);
+    GGML_ASSERT(src1->ne[2] == ids->ne[1]);
 
-    int64_t batch = src1->ne[2];
-    GGML_ASSERT(batch == ids->ne[1]);
+    const int64_t        n_batches = ids->ne[1];
+    const int64_t        n_experts = ids->ne[0];
+    const enum ggml_type type      = src0->type;
 
-    const enum ggml_type type = src0->type;
-    float weight_elem_size;
-    if (type == GGML_TYPE_Q4_0) {
-        weight_elem_size = float(sizeof(uint8_t)) / 2;
-    } else if (type == GGML_TYPE_Q8_0) {
-        weight_elem_size = float(sizeof(uint8_t));
-    } else {
-        GGML_ABORT("MUL_MAT_ID only support quant type Q4_0 and Q8_0");
-    }
+    // Calculate element size for quantized weights
+    const float weight_elem_size =
+        (type == GGML_TYPE_Q4_0) ? 0.5f :
+        (type == GGML_TYPE_Q8_0) ? 1.0f :
+                                   (GGML_ABORT("MUL_MAT_ID only supports Q4_0 and Q8_0"), 0.0f);
 
-    // Calculate memory layout
-    size_t weight_stride = src0->ne[0] * src0->ne[1] * weight_elem_size;
-    size_t weight_size = weight_stride * src0->ne[2] * src0->ne[3];
+    // Calculate scale offset in memory
+    const size_t weight_size     = src0->ne[0] * src0->ne[1] * src0->ne[2] * weight_elem_size;
+    const size_t scale_elem_size = sizeof(uint16_t);
+    char *       scale_data      = (char *) src0->data + weight_size;
 
-    size_t scale_elem_size = sizeof(uint16_t);
-    char * scale_offset = (char *) src0->data + weight_size;
+    // Allocate buffers for selected expert weights and scales
+    const size_t         selected_weight_size = src0->ne[0] * src0->ne[1] * n_experts * weight_elem_size;
+    ggml_cann_pool_alloc selected_weight_alloc(ctx.pool(), selected_weight_size);
+    void *               selected_weight_buffer = selected_weight_alloc.get();
 
-    // Allocate temporary buffers for selected weights and scales
-    size_t export_weight_size = src0->ne[0] * src0->ne[1] * ids->ne[0] * weight_elem_size;
-    ggml_cann_pool_alloc export_weight_allocator(ctx.pool(), export_weight_size);
-    void * export_weight_ptr = export_weight_allocator.get();
+    const size_t         selected_scale_size = (src0->ne[0] / QK8_0) * src0->ne[1] * n_experts * scale_elem_size;
+    ggml_cann_pool_alloc selected_scale_alloc(ctx.pool(), selected_scale_size);
+    void *               selected_scale_buffer = selected_scale_alloc.get();
 
-    size_t export_scale_size = (src0->ne[0] / QK8_0) * src0->ne[1] * ids->ne[0] * scale_elem_size;
-    ggml_cann_pool_alloc export_scale_allocator(ctx.pool(), export_scale_size);
-    void * export_scale_ptr = export_scale_allocator.get();
+    // Helper lambda to allocate and cast tensor to F16 if needed
+    constexpr size_t f16_elem_size      = sizeof(uint16_t);
+    auto             prepare_f16_buffer = [&](ggml_tensor * tensor, ggml_cann_pool_alloc & allocator) -> void * {
+        if (tensor->type == GGML_TYPE_F16) {
+            return tensor->data;
+        }
 
-    // Prepare input buffer (convert to F16 if needed)
-    size_t input_elem_size = sizeof(uint16_t);
-    ggml_cann_pool_alloc input_allocator(ctx.pool());
-    void * input_buffer = src1->data;
-
-    if (src1->type != GGML_TYPE_F16) {
-        size_t total_input_size = input_elem_size;
+        size_t total_size = f16_elem_size;
         for (int i = 0; i < GGML_MAX_DIMS; i++) {
-            total_input_size *= src1->ne[i];
+            total_size *= tensor->ne[i];
         }
-        input_buffer = input_allocator.alloc(total_input_size);
+        void * buffer = allocator.alloc(total_size);
 
-        acl_tensor_ptr acl_src1_tensor = ggml_cann_create_tensor(src1);
-
-        int64_t input_cast_ne[GGML_MAX_DIMS];
-        size_t input_cast_nb[GGML_MAX_DIMS];
-
+        int64_t ne[GGML_MAX_DIMS];
+        size_t  nb[GGML_MAX_DIMS] = { f16_elem_size };
         for (int i = 0; i < GGML_MAX_DIMS; i++) {
-            input_cast_ne[i] = src1->ne[i];
+            ne[i] = tensor->ne[i];
+            if (i > 0) {
+                nb[i] = nb[i - 1] * ne[i - 1];
+            }
         }
 
-        input_cast_nb[0] = input_elem_size;
-        for (int i = 1; i < GGML_MAX_DIMS; i++) {
-            input_cast_nb[i] = input_cast_nb[i - 1] * input_cast_ne[i - 1];
-        }
+        acl_tensor_ptr src_tensor = ggml_cann_create_tensor(tensor);
+        acl_tensor_ptr f16_tensor = ggml_cann_create_tensor(buffer, ACL_FLOAT16, f16_elem_size, ne, nb, GGML_MAX_DIMS);
+        aclnn_cast(ctx, src_tensor.get(), f16_tensor.get(), ACL_FLOAT16);
 
-        acl_tensor_ptr acl_input_tensor = ggml_cann_create_tensor(
-            input_buffer, ACL_FLOAT16, input_elem_size,
-            input_cast_ne, input_cast_nb, GGML_MAX_DIMS);
+        return buffer;
+    };
 
-        aclnn_cast(ctx, acl_src1_tensor.get(), acl_input_tensor.get(), ACL_FLOAT16);
-    }
+    // Prepare input and output buffers
+    ggml_cann_pool_alloc input_alloc(ctx.pool());
+    void *               input_buffer = prepare_f16_buffer(src1, input_alloc);
 
-    // Prepare output buffer (use temp buffer if not F16)
-    size_t output_elem_size = sizeof(uint16_t);
-    ggml_cann_pool_alloc output_allocator(ctx.pool());
-    void * output_buffer = dst->data;
-
-    if (dst->type != GGML_TYPE_F16) {
-        size_t total_output_size = output_elem_size;
-        for (int i = 0; i < GGML_MAX_DIMS; i++) {
-            total_output_size *= dst->ne[i];
-        }
-        output_buffer = output_allocator.alloc(total_output_size);
-    }
+    ggml_cann_pool_alloc output_alloc(ctx.pool());
+    void *               output_buffer = prepare_f16_buffer(dst, output_alloc);
 
     // Process each batch
-    for (int64_t i = 0; i < batch; i++) {
-        // Create index tensor for this batch
-        acl_tensor_ptr select_index = ggml_cann_create_tensor(
-            ids, ids->ne, ids->nb, 1, ACL_FORMAT_ND, i * ids->nb[1]);
+    for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
+        // Create index tensor for current batch
+        const size_t   index_offset  = batch_idx * ids->nb[1];
+        acl_tensor_ptr batch_indices = ggml_cann_create_tensor(ids, ids->ne, ids->nb, 1, ACL_FORMAT_ND, index_offset);
 
-        // IndexSelect for quantized weights (using int8 type)
-        int64_t weight_ne_for_select[3];
-        if (type == GGML_TYPE_Q4_0) {
-            weight_ne_for_select[0] = src0->ne[0] / 2;  // 2 Q4_0 values per byte
-        } else {
-            weight_ne_for_select[0] = src0->ne[0];      // Q8_0
-        }
-        weight_ne_for_select[1] = src0->ne[1];
-        weight_ne_for_select[2] = src0->ne[2];
+        // Select quantized weights using expert indices
+        // Q4_0 stores 2 values per byte, Q8_0 stores 1 value per byte
+        const int64_t weight_d         = (type == GGML_TYPE_Q4_0) ? src0->ne[0] / 2 : src0->ne[0];
+        const int64_t weight_m         = src0->ne[1];
+        const int64_t weight_n_experts = src0->ne[2];
 
-        size_t weight_nb_for_select[3];
-        weight_nb_for_select[0] = sizeof(int8_t);
-        weight_nb_for_select[1] = weight_nb_for_select[0] * weight_ne_for_select[0];
-        weight_nb_for_select[2] = weight_nb_for_select[1] * weight_ne_for_select[1];
+        int64_t weight_ne[3] = { weight_d, weight_m, weight_n_experts };
+        size_t  weight_nb[3] = { sizeof(int8_t), weight_d * sizeof(int8_t), weight_d * weight_m * sizeof(int8_t) };
 
-        acl_tensor_ptr export_weight = ggml_cann_create_tensor(
-            src0->data, ACL_INT8, sizeof(int8_t),
-            weight_ne_for_select, weight_nb_for_select, 3);
+        acl_tensor_ptr all_weights =
+            ggml_cann_create_tensor(src0->data, ACL_INT8, sizeof(int8_t), weight_ne, weight_nb, 3);
 
-        int64_t select_export_weight_ne[3] = {
-            weight_ne_for_select[0],
-            weight_ne_for_select[1],
-            ids->ne[0]
-        };
-        size_t select_export_weight_nb[3];
-        select_export_weight_nb[0] = sizeof(int8_t);
-        select_export_weight_nb[1] = select_export_weight_nb[0] * select_export_weight_ne[0];
-        select_export_weight_nb[2] = select_export_weight_nb[1] * select_export_weight_ne[1];
+        int64_t selected_weight_ne[3] = { weight_d, weight_m, n_experts };
+        size_t  selected_weight_nb[3] = { sizeof(int8_t), weight_d * sizeof(int8_t),
+                                          weight_d * weight_m * sizeof(int8_t) };
 
-        acl_tensor_ptr select_export_weight = ggml_cann_create_tensor(
-            export_weight_ptr, ACL_INT8, sizeof(int8_t),
-            select_export_weight_ne, select_export_weight_nb, 3);
+        acl_tensor_ptr selected_weights = ggml_cann_create_tensor(selected_weight_buffer, ACL_INT8, sizeof(int8_t),
+                                                                  selected_weight_ne, selected_weight_nb, 3);
 
-        GGML_CANN_CALL_ACLNN_OP(ctx, IndexSelect,
-            export_weight.get(), 0, select_index.get(), select_export_weight.get());
+        GGML_CANN_CALL_ACLNN_OP(ctx, IndexSelect, all_weights.get(), 0, batch_indices.get(), selected_weights.get());
 
-        // IndexSelect for scales
-        int64_t scale_ne[3] = {
-            src0->ne[0] / QK8_0,
-            src0->ne[1],
-            src0->ne[2]
-        };
-        size_t scale_nb[3];
-        scale_nb[0] = scale_elem_size;
-        scale_nb[1] = scale_nb[0] * scale_ne[0];
-        scale_nb[2] = scale_nb[1] * scale_ne[1];
+        // Select scales using the same expert indices
+        const int64_t scale_d     = src0->ne[0] / QK8_0;
+        int64_t       scale_ne[3] = { scale_d, weight_m, weight_n_experts };
+        size_t scale_nb[3] = { scale_elem_size, scale_d * scale_elem_size, scale_d * weight_m * scale_elem_size };
 
-        acl_tensor_ptr export_scale = ggml_cann_create_tensor(
-            scale_offset, ACL_FLOAT16, scale_elem_size,
-            scale_ne, scale_nb, 3);
+        acl_tensor_ptr all_scales =
+            ggml_cann_create_tensor(scale_data, ACL_FLOAT16, scale_elem_size, scale_ne, scale_nb, 3);
 
-        int64_t select_export_scale_ne[3] = {
-            scale_ne[0],
-            scale_ne[1],
-            ids->ne[0]
-        };
-        size_t select_export_scale_nb[3];
-        select_export_scale_nb[0] = scale_elem_size;
-        select_export_scale_nb[1] = select_export_scale_nb[0] * select_export_scale_ne[0];
-        select_export_scale_nb[2] = select_export_scale_nb[1] * select_export_scale_ne[1];
+        int64_t selected_scale_ne[3] = { scale_d, weight_m, n_experts };
+        size_t  selected_scale_nb[3] = { scale_elem_size, scale_d * scale_elem_size,
+                                         scale_d * weight_m * scale_elem_size };
 
-        acl_tensor_ptr select_export_scale = ggml_cann_create_tensor(
-            export_scale_ptr, ACL_FLOAT16, scale_elem_size,
-            select_export_scale_ne, select_export_scale_nb, 3);
+        acl_tensor_ptr selected_scales = ggml_cann_create_tensor(selected_scale_buffer, ACL_FLOAT16, scale_elem_size,
+                                                                 selected_scale_ne, selected_scale_nb, 3);
 
-        GGML_CANN_CALL_ACLNN_OP(ctx, IndexSelect,
-            export_scale.get(), 0, select_index.get(), select_export_scale.get());
+        GGML_CANN_CALL_ACLNN_OP(ctx, IndexSelect, all_scales.get(), 0, batch_indices.get(), selected_scales.get());
 
-        // IndexSelect output is [D, M, K] in contiguous layout
-        // For WeightQuantBatchMatmulV2, we need each expert as [M, D] with M major stride
-        for (int64_t k = 0; k < ids->ne[0]; k++) {
-            // Input offset: if src1->ne[1] == 1, broadcast (all k use same input); otherwise each k has its own input
-            size_t input_offset = (i * src1->ne[1] + (src1->ne[1] == 1 ? 0 : k)) * src1->ne[0] * input_elem_size;
-            size_t output_offset = (i * dst->ne[1] + k) * dst->ne[0] * output_elem_size;
+        // Process each expert for current batch
+        // IndexSelect output layout: [D, M, K] in contiguous format
+        // WeightQuantBatchMatmulV2 expects: [M, D] with row-major stride
+        for (int64_t expert_idx = 0; expert_idx < n_experts; expert_idx++) {
+            // Determine input offset: broadcast if src1->ne[1]==1, otherwise use per-expert input
+            const size_t input_offset =
+                (batch_idx * src1->ne[1] + (src1->ne[1] == 1 ? 0 : expert_idx)) * src1->ne[0] * f16_elem_size;
+            const size_t output_offset = (batch_idx * dst->ne[1] + expert_idx) * dst->ne[0] * f16_elem_size;
 
-            // Create view for the k-th expert weight from [D, M, K] -> [M, D]
-            // Data layout in memory is [D0M0, D0M1, ..., D0M_{M-1}, D1M0, D1M1, ...]  
-            // We need [M, D] format with stride[0]=D*elemsize, stride[1]=elemsize
-            int64_t weight_view_ne[2] = {
-                src0->ne[1],  // M = src0->ne[1]
-                src0->ne[0]   // D = src0->ne[0]  (adjusted for Q4_0/Q8_0)
-            };
-            float weight_view_nb[2] = {
-                src0->ne[0] * weight_elem_size,  // M stride: one row = D * elemsize
-                weight_elem_size   // D stride: one element
-            };
-            size_t weight_view_offset = k * select_export_weight_nb[2];
+            // Create weight view for current expert: [D, M, K] -> [M, D]
+            int64_t      weight_view_ne[2]  = { weight_m, src0->ne[0] };
+            float        weight_view_nb[2]  = { src0->ne[0] * weight_elem_size, weight_elem_size };
+            const size_t weight_view_offset = expert_idx * selected_weight_nb[2];
 
-            acl_tensor_ptr weight_view = ggml_cann_create_tensor(
-                export_weight_ptr, ggml_cann_type_mapping(type), weight_elem_size,
-                weight_view_ne, weight_view_nb, 2,
-                ACL_FORMAT_ND, weight_view_offset);
+            acl_tensor_ptr weight_view =
+                ggml_cann_create_tensor(selected_weight_buffer, ggml_cann_type_mapping(type), weight_elem_size,
+                                        weight_view_ne, weight_view_nb, 2, ACL_FORMAT_ND, weight_view_offset);
 
-            // Create view for the k-th expert scale from [D, M, K] -> [M, D]
-            int64_t scale_view_ne[2] = {
-                select_export_scale_ne[1],  // M = src0->ne[1]
-                select_export_scale_ne[0]   // D = src0->ne[0] / QK8_0
-            };
-            size_t scale_view_nb[2] = {
-                select_export_scale_nb[1],  // M stride
-                select_export_scale_nb[0]   // D stride
-            };
-            size_t scale_view_offset = k * select_export_scale_nb[2];
+            // Create scale view for current expert: [D, M, K] -> [M, D]
+            int64_t      scale_view_ne[2]  = { weight_m, scale_d };
+            size_t       scale_view_nb[2]  = { selected_scale_nb[1], selected_scale_nb[0] };
+            const size_t scale_view_offset = expert_idx * selected_scale_nb[2];
 
-            acl_tensor_ptr scale_view = ggml_cann_create_tensor(
-                export_scale_ptr, ACL_FLOAT16, scale_elem_size,
-                scale_view_ne, scale_view_nb, 2,
-                ACL_FORMAT_ND, scale_view_offset);
-            
-            // Prepare input tensor [D, 1]
-            int64_t active_tensor_ne[2] = { src1->ne[0], 1 };
-            size_t active_tensor_nb[2] = { input_elem_size, src1->ne[0] * input_elem_size };
+            acl_tensor_ptr scale_view =
+                ggml_cann_create_tensor(selected_scale_buffer, ACL_FLOAT16, scale_elem_size, scale_view_ne,
+                                        scale_view_nb, 2, ACL_FORMAT_ND, scale_view_offset);
 
-            acl_tensor_ptr active_tensor = ggml_cann_create_tensor(
-                input_buffer, ACL_FLOAT16, input_elem_size,
-                active_tensor_ne, active_tensor_nb, 2,
-                ACL_FORMAT_ND, input_offset);
+            // Create input activation tensor [D, 1]
+            int64_t input_ne[2] = { src1->ne[0], 1 };
+            size_t  input_nb[2] = { f16_elem_size, src1->ne[0] * f16_elem_size };
 
-            // Prepare output tensor [M, 1]
-            int64_t dst_ne[2] = { dst->ne[0], 1 };
-            size_t dst_nb[2] = { output_elem_size, dst->ne[0] * output_elem_size };
+            acl_tensor_ptr input_tensor = ggml_cann_create_tensor(input_buffer, ACL_FLOAT16, f16_elem_size, input_ne,
+                                                                  input_nb, 2, ACL_FORMAT_ND, input_offset);
 
-            acl_tensor_ptr acl_dst = ggml_cann_create_tensor(
-                output_buffer, ACL_FLOAT16, output_elem_size,
-                dst_ne, dst_nb, 2,
-                ACL_FORMAT_ND, output_offset);
+            // Create output tensor [M, 1]
+            int64_t output_ne[2] = { dst->ne[0], 1 };
+            size_t  output_nb[2] = { f16_elem_size, dst->ne[0] * f16_elem_size };
 
-            // Call WeightQuantBatchMatmulV2
-            GGML_CANN_CALL_ACLNN_OP(ctx, WeightQuantBatchMatmulV2,
-                active_tensor.get(),
-                weight_view.get(),
-                scale_view.get(),
-                nullptr,
-                nullptr,
-                nullptr,
-                nullptr,
-                QK8_0,
-                acl_dst.get());
+            acl_tensor_ptr output_tensor = ggml_cann_create_tensor(output_buffer, ACL_FLOAT16, f16_elem_size, output_ne,
+                                                                   output_nb, 2, ACL_FORMAT_ND, output_offset);
+
+            // Perform quantized matrix multiplication
+            GGML_CANN_CALL_ACLNN_OP(ctx, WeightQuantBatchMatmulV2, input_tensor.get(), weight_view.get(),
+                                    scale_view.get(), nullptr, nullptr, nullptr, nullptr, QK8_0, output_tensor.get());
         }
     }
 
-    // Cast output back to target type if needed
+    // Cast output back to original type if we used a temporary F16 buffer
     if (dst->type != GGML_TYPE_F16) {
-        int64_t output_cast_ne[GGML_MAX_DIMS];
-        size_t output_cast_nb[GGML_MAX_DIMS];
-
+        int64_t ne[GGML_MAX_DIMS];
+        size_t  nb[GGML_MAX_DIMS] = { f16_elem_size };
         for (int i = 0; i < GGML_MAX_DIMS; i++) {
-            output_cast_ne[i] = dst->ne[i];
+            ne[i] = dst->ne[i];
+            if (i > 0) {
+                nb[i] = nb[i - 1] * ne[i - 1];
+            }
         }
 
-        output_cast_nb[0] = output_elem_size;
-        for (int i = 1; i < GGML_MAX_DIMS; i++) {
-            output_cast_nb[i] = output_cast_nb[i - 1] * output_cast_ne[i - 1];
-        }
+        acl_tensor_ptr f16_output =
+            ggml_cann_create_tensor(output_buffer, ACL_FLOAT16, f16_elem_size, ne, nb, GGML_MAX_DIMS);
+        acl_tensor_ptr dst_tensor = ggml_cann_create_tensor(dst);
 
-        acl_tensor_ptr acl_output_tensor = ggml_cann_create_tensor(
-            output_buffer, ACL_FLOAT16, output_elem_size,
-            output_cast_ne, output_cast_nb, GGML_MAX_DIMS);
-
-        acl_tensor_ptr acl_dst_tensor = ggml_cann_create_tensor(dst);
-
-        aclnn_cast(ctx, acl_output_tensor.get(), acl_dst_tensor.get(),
-            ggml_cann_type_mapping(dst->type));
+        aclnn_cast(ctx, f16_output.get(), dst_tensor.get(), ggml_cann_type_mapping(dst->type));
     }
 }
 
