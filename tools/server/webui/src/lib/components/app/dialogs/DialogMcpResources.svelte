@@ -40,6 +40,7 @@
 	async function loadResources() {
 		const perChatOverrides = conversationsStore.getAllMcpServerOverrides();
 		const initialized = await mcpStore.ensureInitialized(perChatOverrides);
+
 		if (initialized) {
 			await mcpStore.fetchAllResources();
 		}
