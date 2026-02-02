@@ -200,7 +200,9 @@ export class MCPService {
 			)
 		);
 
-		console.log(`[MCPService][${serverName}] Creating transport...`);
+		if (import.meta.env.DEV) {
+			console.log(`[MCPService][${serverName}] Creating transport...`);
+		}
 		const { transport, type: transportType } = this.createTransport(serverConfig);
 
 		// Phase: Transport ready
