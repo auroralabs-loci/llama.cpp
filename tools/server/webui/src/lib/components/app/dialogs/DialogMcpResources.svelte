@@ -144,11 +144,14 @@
 		<Dialog.Header class="border-b px-6 py-4">
 			<Dialog.Title class="flex items-center gap-2">
 				<FolderOpen class="h-5 w-5" />
+
 				<span>MCP Resources</span>
+
 				{#if totalCount > 0}
 					<span class="text-sm font-normal text-muted-foreground">({totalCount})</span>
 				{/if}
 			</Dialog.Title>
+
 			<Dialog.Description>
 				Browse and attach resources from connected MCP servers to your chat context.
 			</Dialog.Description>
@@ -169,6 +172,7 @@
 				{#if selectedResources.size === 1}
 					{@const allResources = getAllResourcesFlat()}
 					{@const selectedResource = allResources.find((r) => selectedResources.has(r.uri))}
+
 					<McpResourcePreview resource={selectedResource ?? null} />
 				{:else if selectedResources.size > 1}
 					<div class="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -184,12 +188,14 @@
 
 		<Dialog.Footer class="border-t px-6 py-4">
 			<Button variant="outline" onclick={() => handleOpenChange(false)}>Cancel</Button>
+
 			<Button onclick={handleAttach} disabled={selectedResources.size === 0 || isAttaching}>
 				{#if isAttaching}
 					<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 				{:else}
 					<Plus class="mr-2 h-4 w-4" />
 				{/if}
+
 				Attach {selectedResources.size > 0 ? `(${selectedResources.size})` : 'Resource'}
 			</Button>
 		</Dialog.Footer>
