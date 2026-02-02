@@ -428,6 +428,7 @@
 			const transformedRoot = (await processorInstance.run(
 				singleNodeRoot as MdastRoot
 			)) as HastRoot;
+
 			unstableHtml = processorInstance.stringify(transformedRoot);
 		}
 
