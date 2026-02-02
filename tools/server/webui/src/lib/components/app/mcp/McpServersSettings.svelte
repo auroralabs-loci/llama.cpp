@@ -89,6 +89,7 @@
 			<div class="space-y-4">
 				<div class="flex items-center justify-between">
 					<p class="font-medium">Add New Server</p>
+
 					<Button
 						variant="ghost"
 						size="icon"
