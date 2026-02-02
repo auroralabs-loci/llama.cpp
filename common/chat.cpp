@@ -1763,8 +1763,8 @@ static common_chat_params common_chat_params_init_gigachat_v3(
     data.format = COMMON_CHAT_FORMAT_PEG_NATIVE;
 
     data.preserved_tokens = {
-        "<|message_sep|>\n\n",
-        "<|role_sep|>\n",
+        "<|message_sep|>",
+        "<|role_sep|>",
     };
 
     auto has_tools = inputs.tools.is_array() && !inputs.tools.empty();
