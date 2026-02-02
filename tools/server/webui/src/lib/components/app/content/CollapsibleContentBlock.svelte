@@ -62,7 +62,9 @@
 				{#if Icon}
 					<Icon class={iconClass} />
 				{/if}
+
 				<span class="font-mono text-sm font-medium">{title}</span>
+
 				{#if subtitle}
 					<span class="text-xs italic">{subtitle}</span>
 				{/if}
