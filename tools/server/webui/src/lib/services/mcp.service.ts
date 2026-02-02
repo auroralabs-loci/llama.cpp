@@ -528,6 +528,7 @@ export class MCPService {
 	): Promise<{ resourceTemplates: MCPResourceTemplate[]; nextCursor?: string }> {
 		try {
 			const result = await connection.client.listResourceTemplates(cursor ? { cursor } : undefined);
+
 			return {
 				resourceTemplates: (result.resourceTemplates ?? []) as MCPResourceTemplate[],
 				nextCursor: result.nextCursor
@@ -537,6 +538,7 @@ export class MCPService {
 				`[MCPService][${connection.serverName}] Failed to list resource templates:`,
 				error
 			);
+
 			return { resourceTemplates: [] };
 		}
 	}
