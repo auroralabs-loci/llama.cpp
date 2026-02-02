@@ -182,6 +182,9 @@
 			<div class="flex-1 overflow-y-auto p-4">
 				{#if selectedResources.size === 1}
 					{@const allResources = getAllResourcesFlat()}
+			<div class="flex-1 overflow-y-auto p-4">
+				{#if selectedResources.size === 1}
+					{@const allResources = getAllResourcesFlat()}
 					{@const selectedResource = allResources.find((r) => selectedResources.has(r.uri))}
 
 					<McpResourcePreview resource={selectedResource ?? null} />
