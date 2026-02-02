@@ -165,6 +165,7 @@
 
 	let hasMcpPromptsSupport = $derived.by(() => {
 		const perChatOverrides = conversationsStore.getAllMcpServerOverrides();
+
 		return mcpStore.hasPromptsCapability(perChatOverrides);
 	});
 
