@@ -142,6 +142,7 @@
 	const fetchCompletions = debounce(async (argName: string, value: string) => {
 		if (!selectedPrompt || value.length < 1) {
 			suggestions[argName] = [];
+
 			return;
 		}
 
