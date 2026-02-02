@@ -78,6 +78,7 @@
 		{#if !isAddingServer}
 			<Button variant="outline" size="sm" class="shrink-0" onclick={showAddServerForm}>
 				<Plus class="h-4 w-4" />
+
 				Add New Server
 			</Button>
 		{/if}
