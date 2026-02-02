@@ -49,6 +49,7 @@
 	function handleOpenChange(newOpen: boolean) {
 		open = newOpen;
 		onOpenChange?.(newOpen);
+
 		if (!newOpen) {
 			selectedResources.clear();
 			lastSelectedUri = null;
