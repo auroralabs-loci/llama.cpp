@@ -171,6 +171,7 @@
 
 	let hasMcpResourcesSupport = $derived.by(() => {
 		const perChatOverrides = conversationsStore.getAllMcpServerOverrides();
+
 		return mcpStore.hasResourcesCapability(perChatOverrides);
 	});
 </script>
