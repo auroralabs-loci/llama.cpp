@@ -19,6 +19,7 @@
 			servers.length > 0 &&
 			servers.every((server) => {
 				const state = mcpStore.getHealthCheckState(server.id);
+
 				return state.status === 'success' || state.status === 'error';
 			});
 
