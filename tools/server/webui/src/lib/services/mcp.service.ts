@@ -594,12 +594,14 @@ export class MCPService {
 	static async subscribeResource(connection: MCPConnection, uri: string): Promise<void> {
 		try {
 			await connection.client.subscribeResource({ uri });
+
 			console.log(`[MCPService][${connection.serverName}] Subscribed to resource: ${uri}`);
 		} catch (error) {
 			console.error(
 				`[MCPService][${connection.serverName}] Failed to subscribe to resource:`,
 				error
 			);
+
 			throw error;
 		}
 	}
