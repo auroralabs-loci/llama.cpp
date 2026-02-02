@@ -168,6 +168,7 @@
 					{:else}
 						<div class="flex items-center gap-2 rounded bg-muted p-2 text-sm text-muted-foreground">
 							<FileText class="h-4 w-4" />
+
 							<span>Binary content ({blob.mimeType || 'unknown type'})</span>
 						</div>
 					{/if}
@@ -179,17 +180,18 @@
 			{/if}
 		</div>
 
-		<!-- Metadata -->
 		{#if resource.mimeType || resource.annotations}
 			<div class="flex flex-wrap gap-2 text-xs text-muted-foreground">
 				{#if resource.mimeType}
 					<span class="rounded bg-muted px-1.5 py-0.5">{resource.mimeType}</span>
 				{/if}
+
 				{#if resource.annotations?.priority !== undefined}
 					<span class="rounded bg-muted px-1.5 py-0.5">
 						Priority: {resource.annotations.priority}
 					</span>
 				{/if}
+
 				<span class="rounded bg-muted px-1.5 py-0.5">
 					Server: {resource.serverName}
 				</span>
