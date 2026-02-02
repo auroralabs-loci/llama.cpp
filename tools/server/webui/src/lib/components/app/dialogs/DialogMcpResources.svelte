@@ -115,6 +115,7 @@
 			}
 
 			const count = resourcesToAttach.length;
+
 			toast.success(
 				count === 1
 					? `Resource attached: ${resourcesToAttach[0].name}`
