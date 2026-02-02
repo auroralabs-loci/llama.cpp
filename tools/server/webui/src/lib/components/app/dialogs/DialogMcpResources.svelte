@@ -132,9 +132,12 @@
 
 	async function handleQuickAttach(resource: MCPResourceInfo) {
 		isAttaching = true;
+
 		try {
 			await mcpStore.attachResource(resource.uri);
+
 			onAttach?.(resource);
+
 			toast.success(`Resource attached: ${resource.name}`);
 		} catch (error) {
 			console.error('Failed to attach resource:', error);
