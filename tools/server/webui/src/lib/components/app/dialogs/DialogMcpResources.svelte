@@ -83,6 +83,7 @@
 		} else {
 			selectedResources.delete(resource.uri);
 		}
+
 		lastSelectedUri = resource.uri;
 	}
 
