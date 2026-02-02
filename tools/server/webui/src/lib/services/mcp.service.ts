@@ -573,12 +573,14 @@ export class MCPService {
 	): Promise<MCPReadResourceResult> {
 		try {
 			const result = await connection.client.readResource({ uri });
+
 			return {
 				contents: (result.contents ?? []) as MCPResourceContent[],
 				_meta: result._meta
 			};
 		} catch (error) {
 			console.error(`[MCPService][${connection.serverName}] Failed to read resource:`, error);
+
 			throw error;
 		}
 	}
