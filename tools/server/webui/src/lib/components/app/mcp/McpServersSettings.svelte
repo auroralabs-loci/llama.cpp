@@ -56,11 +56,13 @@
 
 	function saveNewServer() {
 		if (newServerUrlError) return;
+
 		mcpStore.addServer({
 			enabled: true,
 			url: newServerUrl.trim(),
 			headers: newServerHeaders.trim() || undefined
 		});
+
 		isAddingServer = false;
 		newServerUrl = '';
 		newServerHeaders = '';
