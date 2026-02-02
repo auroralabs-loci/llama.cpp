@@ -2,7 +2,7 @@
  *
  * ATTACHMENTS
  *
- * Components for displaying and managing file attachments in chat messages.
+ * Components for displaying and managing different attachment types in chat messages.
  * Supports two operational modes:
  * - **Readonly mode**: For displaying stored attachments in sent messages (DatabaseMessageExtra[])
  * - **Editable mode**: For managing pending uploads in the input form (ChatUploadedFile[])
