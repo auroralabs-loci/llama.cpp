@@ -20,9 +20,10 @@
 	$effect(() => {
 		if (textElement) {
 			checkTruncation();
-			// Re-check on resize
+
 			const observer = new ResizeObserver(checkTruncation);
 			observer.observe(textElement);
+
 			return () => observer.disconnect();
 		}
 	});
