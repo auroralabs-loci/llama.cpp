@@ -94,6 +94,7 @@
 	{#if !resource}
 		<div class="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
 			<FileText class="h-8 w-8 opacity-50" />
+
 			<span class="text-sm">Select a resource to preview</span>
 		</div>
 	{:else}
