@@ -1,7 +1,4 @@
 <script lang="ts">
-	/**
-	 * TruncatedText - Shows tooltip only when text is actually truncated
-	 */
 	import * as Tooltip from '$lib/components/ui/tooltip';
 
 	interface Props {
