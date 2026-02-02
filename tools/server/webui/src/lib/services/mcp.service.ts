@@ -486,12 +486,14 @@ export class MCPService {
 	): Promise<{ resources: MCPResource[]; nextCursor?: string }> {
 		try {
 			const result = await connection.client.listResources(cursor ? { cursor } : undefined);
+
 			return {
 				resources: (result.resources ?? []) as MCPResource[],
 				nextCursor: result.nextCursor
 			};
 		} catch (error) {
 			console.warn(`[MCPService][${connection.serverName}] Failed to list resources:`, error);
+
 			return { resources: [] };
 		}
 	}
