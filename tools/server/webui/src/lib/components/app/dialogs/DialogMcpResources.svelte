@@ -153,9 +153,6 @@
 			<Dialog.Title class="flex items-center gap-2">
 				<FolderOpen class="h-5 w-5" />
 
-			<Dialog.Title class="flex items-center gap-2">
-				<FolderOpen class="h-5 w-5" />
-
 				<span>MCP Resources</span>
 
 				{#if totalCount > 0}
@@ -179,9 +176,6 @@
 				/>
 			</div>
 
-			<div class="flex-1 overflow-y-auto p-4">
-				{#if selectedResources.size === 1}
-					{@const allResources = getAllResourcesFlat()}
 			<div class="flex-1 overflow-y-auto p-4">
 				{#if selectedResources.size === 1}
 					{@const allResources = getAllResourcesFlat()}

@@ -105,7 +105,6 @@
 				<p class="truncate text-xs text-muted-foreground">{resource.uri}</p>
 
 				{#if resource.description}
-
 					<p class="mt-1 text-sm text-muted-foreground">{resource.description}</p>
 				{/if}
 			</div>

@@ -114,11 +114,12 @@
 						<span class="truncate text-sm">{getServerLabel(server)}</span>
 
 						{#if hasError}
-							<span class="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive">
+							<span
+								class="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive"
+							>
 								Error
 							</span>
 						{/if}
-
 					</div>
 
 					<Switch
