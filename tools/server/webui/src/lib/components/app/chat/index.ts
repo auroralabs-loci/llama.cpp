@@ -130,6 +130,7 @@ export { default as ChatAttachmentsViewAll } from './ChatAttachments/ChatAttachm
  * - File upload via button dropdown (images/text/PDF), drag-drop, or paste
  * - Audio recording with WAV conversion (when model supports audio)
  * - MCP prompt picker with search and argument forms
+ * - MCP reource picker with component to list attached resources at the bottom of Chat Form
  * - Model selector integration (router mode)
  * - Loading state with stop button, disabled state for errors
  *
