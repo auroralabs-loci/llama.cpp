@@ -32,12 +32,9 @@ while read -r line; do
   git push origin "refs/heads/${loci_pr_branch}:refs/heads/${loci_pr_branch}" --force
 
   # Check for existing PR with same head targeting main
-  existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number,headRefName,baseRefName \
-    | jq -r --arg head "$loci_pr_branch" \
-        '.[] | select(.headRefName==$head and .baseRefName=="main") | .number' \
-    | head -n1 || true)
+  existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$loci_pr_branch" --base main --json number --jq '.[0].number // empty' 2>/dev/null || true)
 
-  if [ -n "${existing}" ] && [ "${existing}" != "null" ]; then
+  if [ -n "${existing}" ]; then
     echo "Mirrored PR #${existing} already exists. Branch updated."
   else
     echo "Creating mirrored PR targeting main."

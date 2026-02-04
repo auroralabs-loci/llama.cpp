@@ -18,6 +18,7 @@ SCRIPT_DIR="$(dirname "$0")"
 #
 # Optional environment variables (for manual mode):
 #   PR_URL                - specific PR URL to mirror
+#   BASE_SHA              - upstream main commit SHA to use as base (overrides merge-base)
 
 git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
 git fetch upstream "${UPSTREAM_DEFAULT}:refs/remotes/upstream/${UPSTREAM_DEFAULT}"
@@ -92,18 +93,33 @@ while true; do
     git fetch upstream "refs/pull/${pull_num}/head:refs/remotes/upstream/pr/${pull_num}" 2>/dev/null || \
     git fetch upstream "${pull_head_sha}:refs/remotes/upstream/pr/${pull_num}" 2>/dev/null || true
 
-    # Skip if merge-base cannot be computed
-    merge_base=$(git merge-base "${pull_head_sha}" "refs/remotes/upstream/${UPSTREAM_DEFAULT}" 2>/dev/null || true)
-    if [ -z "${merge_base}" ]; then
-      echo "  PR #${pull_num}: could not compute merge-base. Skipping."
+    # Determine merge-base: use BASE_SHA if provided, otherwise compute it
+    if [ -n "${BASE_SHA:-}" ]; then
+      merge_base="${BASE_SHA}"
+      echo "  PR #${pull_num}: using provided BASE_SHA as merge-base: ${merge_base}"
+    else
+      merge_base=$(git merge-base "${pull_head_sha}" "refs/remotes/upstream/${UPSTREAM_DEFAULT}" 2>/dev/null || true)
+      if [ -z "${merge_base}" ]; then
+        echo "  PR #${pull_num}: could not compute merge-base. Skipping."
+        if [ "$manual_mode" -eq 1 ]; then
+          echo "::error::Could not compute merge-base for manually specified PR"
+          exit 1
+        fi
+        continue
+      fi
+    fi
+
+    short_merge_base="${merge_base:0:7}"
+
+    # Check for merge conflicts with upstream main (skip PRs that would conflict)
+    if ! git merge-tree --write-tree "${merge_base}" "${pull_head_sha}" "refs/remotes/upstream/${UPSTREAM_DEFAULT}" &>/dev/null; then
+      echo "  PR #${pull_num}: has conflicts with upstream ${UPSTREAM_DEFAULT}. Skipping."
       if [ "$manual_mode" -eq 1 ]; then
-        echo "::error::Could not compute merge-base for manually specified PR"
+        echo "::error::PR has merge conflicts with upstream ${UPSTREAM_DEFAULT}"
         exit 1
       fi
       continue
     fi
-
-    short_merge_base="${merge_base:0:7}"
 
     # Create or update base branch if needed
     if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$merge_base"); then

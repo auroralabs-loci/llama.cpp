@@ -8,6 +8,10 @@ on:
         description: 'Upstream PR URL to mirror (e.g., https://github.com/owner/repo/pull/123)'
         required: false
         type: string
+      base_sha:
+        description: 'Upstream commit SHA to use as base instead of computed merge-base (requires pr_url)'
+        required: false
+        type: string
 
 permissions:
   actions: write
@@ -68,6 +72,7 @@ jobs:
           UPSTREAM_PR_LOOKBACK_DAYS: ${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}
           MAX_UPSTREAM_PRS: ${{ vars.MIRROR_MAX_UPSTREAM_PRS }}
           PR_URL: ${{ github.event.inputs.pr_url }}
+          BASE_SHA: ${{ github.event.inputs.base_sha }}
         run: bash .github/scripts/fetch-upstream-prs.sh
 
       - name: Upsert mirror branches & PRs
