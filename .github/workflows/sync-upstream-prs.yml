@@ -9,7 +9,7 @@ on:
         required: false
         type: string
       base_sha:
-        description: 'Upstream commit SHA to use as base instead of computed merge-base (requires pr_url)'
+        description: 'Upstream commit SHA: alone creates loci/main-{sha} branch, with pr_url overrides merge-base with main'
         required: false
         type: string
 

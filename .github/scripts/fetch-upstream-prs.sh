@@ -27,6 +27,18 @@ git fetch origin overlay:refs/remotes/origin/overlay || true
 git config user.name "${GITHUB_ACTOR}"
 git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
+# If BASE_SHA is provided without PR_URL, just create the loci/main branch and exit
+if [ -n "${BASE_SHA:-}" ] && [ -z "${PR_URL:-}" ]; then
+  echo "Base SHA mode: creating loci/main branch for ${BASE_SHA}"
+  if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$BASE_SHA"); then
+    echo "Branch ${loci_main_branch} already exists and is up-to-date."
+  else
+    echo "Created/updated ${loci_main_branch}."
+  fi
+  echo "prs_to_sync=no" >> "$GITHUB_OUTPUT"
+  exit 0
+fi
+
 > pulls.ndjson
 selected_pulls_count=0
 manual_mode=0
