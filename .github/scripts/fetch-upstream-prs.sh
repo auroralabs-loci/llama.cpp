@@ -158,6 +158,13 @@ while true; do
       fi
     fi
 
+    # Determine if we should target loci/main-* (only when base_sha explicitly provided)
+    if [ -n "${BASE_SHA:-}" ]; then
+      use_loci_base=1
+    else
+      use_loci_base=0
+    fi
+
     # Select pull request
     jq -c \
       --arg pull_number "$pull_num" \
@@ -165,6 +172,7 @@ while true; do
       --arg loci_pr_branch "$loci_pr_branch" \
       --arg short_merge_base "$short_merge_base" \
       --arg loci_main_branch "$loci_main_branch" \
+      --argjson use_loci_base "$use_loci_base" \
       '{
         pull_number: $pull_number,
         title: .title,
@@ -172,7 +180,8 @@ while true; do
         pull_head_sha: $pull_head_sha,
         loci_pr_branch: $loci_pr_branch,
         short_merge_base: $short_merge_base,
-        loci_main_branch: $loci_main_branch
+        loci_main_branch: $loci_main_branch,
+        use_loci_base: $use_loci_base
       }' <<<"$pr" >> pulls.ndjson
 
     selected_pulls_count=$((selected_pulls_count + 1))
