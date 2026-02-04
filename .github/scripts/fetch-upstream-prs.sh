@@ -123,17 +123,7 @@ while true; do
 
     short_merge_base="${merge_base:0:7}"
 
-    # Check for merge conflicts with upstream main (skip PRs that would conflict)
-    if ! git merge-tree --write-tree "${merge_base}" "${pull_head_sha}" "refs/remotes/upstream/${UPSTREAM_DEFAULT}" &>/dev/null; then
-      echo "  PR #${pull_num}: has conflicts with upstream ${UPSTREAM_DEFAULT}. Skipping."
-      if [ "$manual_mode" -eq 1 ]; then
-        echo "::error::PR has merge conflicts with upstream ${UPSTREAM_DEFAULT}"
-        exit 1
-      fi
-      continue
-    fi
-
-    # Create or update base branch if needed
+    # Create or update base branch if needed (must happen before conflict check when using loci base)
     if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$merge_base"); then
       : # Branch already up-to-date
     else
@@ -144,6 +134,24 @@ while true; do
       else
         echo "  PR #${pull_num}: created/updated ${loci_main_branch}. Continuing with PR."
       fi
+    fi
+
+    # Check for merge conflicts - against loci/main-* when BASE_SHA provided, otherwise upstream default
+    if [ -n "${BASE_SHA:-}" ]; then
+      conflict_target="refs/heads/${loci_main_branch}"
+      conflict_target_name="$loci_main_branch"
+    else
+      conflict_target="refs/remotes/upstream/${UPSTREAM_DEFAULT}"
+      conflict_target_name="upstream ${UPSTREAM_DEFAULT}"
+    fi
+
+    if ! git merge-tree --write-tree "${merge_base}" "${pull_head_sha}" "${conflict_target}" &>/dev/null; then
+      echo "  PR #${pull_num}: has conflicts with ${conflict_target_name}. Skipping."
+      if [ "$manual_mode" -eq 1 ]; then
+        echo "::error::PR has merge conflicts with ${conflict_target_name}"
+        exit 1
+      fi
+      continue
     fi
 
     origin_sha=$(git ls-remote --heads origin "refs/heads/${loci_pr_branch}" | cut -f1 || true)
