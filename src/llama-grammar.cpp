@@ -1370,6 +1370,7 @@ void llama_grammar_accept_impl(struct llama_grammar & grammar, llama_token token
 
                     auto constrained_str = grammar.trigger_buffer.substr(start);
                     grammar.trigger_buffer.clear();
+                    llama_grammar_accept_token(grammar, -1, constrained_str);
                     grammar.trigger_buffer_positions.clear();
                     LLAMA_LOG_DEBUG("Grammar triggered on regex: '%s'\n", constrained_str.c_str());
                     return;
