@@ -119,6 +119,7 @@ while true; do
         fi
         continue
       fi
+      echo "  PR #${pull_num}: computed merge-base: ${merge_base}"
     fi
 
     short_merge_base="${merge_base:0:7}"
