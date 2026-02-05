@@ -1,6 +1,6 @@
 <!--START_SECTION:navbar-->
 <div align="center">
-  <a href="README.md">🇺🇸 English</a> | <a href="locales/README.de.md">🇩🇪 Deutsch</a> | <a href="locales/README.es.md">🇪🇸 Español</a> | <a href="locales/README.fr.md">🇫🇷 Français</a> | <a href="locales/README.hi.md">🇮🇳 हिंदी</a> | <a href="locales/README.ja.md">🇯🇵 日本語</a> | <a href="locales/README.ko.md">🇰🇷 한국어</a> | <a href="locales/README.pt.md">🇵🇹 Português</a> | <a href="locales/README.ru.md">🇷🇺 Русский</a> | <a href="locales/README.zh.md">🇨🇳 中文</a>
+  <a href="../README.md">🇺🇸 English</a> | <a href="README.de.md">🇩🇪 Deutsch</a> | <a href="README.es.md">🇪🇸 Español</a> | <a href="README.fr.md">🇫🇷 Français</a> | <a href="README.hi.md">🇮🇳 हिंदी</a> | <a href="README.ja.md">🇯🇵 日本語</a> | <a href="README.ko.md">🇰🇷 한국어</a> | <a href="README.pt.md">🇵🇹 Português</a> | <a href="README.ru.md">🇷🇺 Русский</a> | <a href="README.zh.md">🇨🇳 中文</a>
 </div>
 <!--END_SECTION:navbar-->
 
@@ -16,37 +16,35 @@
 
 LLM inference in C/C++
 
-## Recent API changes
+## Недавние изменения API
 
-- [Changelog for `libllama` API](https://github.com/ggml-org/llama.cpp/issues/9289)
-- [Changelog for `llama-server` REST API](https://github.com/ggml-org/llama.cpp/issues/9291)
+- [Изменения в API `libllama`](https://github.com/ggml-org/llama.cpp/issues/9289)
+- [Изменения в REST API `llama-server`](https://github.com/ggml-org/llama.cpp/issues/9291)
 
-## Hot topics
+## Горячие темы
 
 - **[guide : using the new WebUI of llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/16938)**
 - [guide : running gpt-oss with llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/15396)
 - [[FEEDBACK] Better packaging for llama.cpp to support downstream consumers 🤗](https://github.com/ggml-org/llama.cpp/discussions/15313)
-- Support for the `gpt-oss` model with native MXFP4 format has been added | [PR](https://github.com/ggml-org/llama.cpp/pull/15091) | [Collaboration with NVIDIA](https://blogs.nvidia.com/blog/rtx-ai-garage-openai-oss) | [Comment](https://github.com/ggml-org/llama.cpp/discussions/15095)
-- Multimodal support arrived in `llama-server`: [#12898](https://github.com/ggml-org/llama.cpp/pull/12898) | [documentation](./docs/multimodal.md)
-- VS Code extension for FIM completions: https://github.com/ggml-org/llama.vscode
-- Vim/Neovim plugin for FIM completions: https://github.com/ggml-org/llama.vim
-- Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggml-org/llama.cpp/discussions/9669
-- Hugging Face GGUF editor: [discussion](https://github.com/ggml-org/llama.cpp/discussions/9268) | [tool](https://huggingface.co/spaces/CISCai/gguf-editor)
+- Поддержка модели `gpt-oss` с нативным форматом MXFP4 добавлена | [PR](https://github.com/ggml-org/llama.cpp/pull/15091) | [Сотрудничество с NVIDIA](https://blogs.nvidia.com/blog/rtx-ai-garage-openai-oss) | [Комментарий](https://github.com/ggml-org/llama.cpp/discussions/15095)
+- Поддержка мультимодальных данных добавлена в `llama-server`: [#12898](https://github.com/ggml-org/llama.cpp/pull/12898) | [документация](.././docs/multimodal.md)
+- Расширение для VS Code для завершения FIM: https://github.com/ggml-org/llama.vscode
+- Плагин для Vim/Neovim для завершения FIM: https://github.com/ggml-org/llama.vim
+- Точки входа Hugging Face Inference теперь поддерживают GGUF по умолчанию! https://github.com/ggml-org/llama.cpp/discussions/9669
+- Редактор GGUF для Hugging Face: [обсуждение](https://github.com/ggml-org/llama.cpp/discussions/9268) | [инструмент](https://huggingface.co/spaces/CISCai/gguf-editor)
 
-----
+## Быстрый старт
 
-## Quick start
+Начало работы с llama.cpp простое. Вот несколько способов установить его на вашем компьютере:
 
-Getting started with llama.cpp is straightforward. Here are several ways to install it on your machine:
+- Установите `llama.cpp` с помощью [brew, nix или winget](../docs/install.md)
+- Запустите с помощью Docker - посмотрите нашу [документацию по Docker](../docs/docker.md)
+- Скачайте предварительно собранные бинарные файлы с [страницы выпусков](https://github.com/ggml-org/llama.cpp/releases)
+- Соберите из исходного кода, клонируя этот репозиторий - посмотрите наш [руководство по сборке](../docs/build.md)
 
-- Install `llama.cpp` using [brew, nix or winget](docs/install.md)
-- Run with Docker - see our [Docker documentation](docs/docker.md)
-- Download pre-built binaries from the [releases page](https://github.com/ggml-org/llama.cpp/releases)
-- Build from source by cloning this repository - check out [our build guide](docs/build.md)
+После установки вам понадобится модель для работы. Перейдите в раздел [Получение и квантование моделей](#obtaining-and-quantizing-models), чтобы узнать больше.
 
-Once installed, you'll need a model to work with. Head to the [Obtaining and quantizing models](#obtaining-and-quantizing-models) section to learn more.
-
-Example command:
+Пример команды:
 
 ```sh
 # Use a local model file
@@ -59,28 +57,28 @@ llama-cli -hf ggml-org/gemma-3-1b-it-GGUF
 llama-server -hf ggml-org/gemma-3-1b-it-GGUF
 ```
 
-## Description
+## Описание
 
-The main goal of `llama.cpp` is to enable LLM inference with minimal setup and state-of-the-art performance on a wide
-range of hardware - locally and in the cloud.
+Основной целью `llama.cpp` является обеспечение инференса LLM с минимальной настройкой и передовой производительностью на широком
+диапазоне оборудования - локально и в облаке.
 
-- Plain C/C++ implementation without any dependencies
-- Apple silicon is a first-class citizen - optimized via ARM NEON, Accelerate and Metal frameworks
-- AVX, AVX2, AVX512 and AMX support for x86 architectures
-- RVV, ZVFH, ZFH, ZICBOP and ZIHINTPAUSE support for RISC-V architectures
-- 1.5-bit, 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit integer quantization for faster inference and reduced memory use
-- Custom CUDA kernels for running LLMs on NVIDIA GPUs (support for AMD GPUs via HIP and Moore Threads GPUs via MUSA)
-- Vulkan and SYCL backend support
-- CPU+GPU hybrid inference to partially accelerate models larger than the total VRAM capacity
+- Реализация на чистом C/C++ без каких-либо зависимостей
+- Apple silicon - первый гражданин - оптимизация с использованием ARM NEON, Accelerate и Metal фреймворков
+- Поддержка AVX, AVX2, AVX512 и AMX для архитектур x86
+- Поддержка RVV, ZVFH, ZFH, ZICBOP и ZIHINTPAUSE для архитектур RISC-V
+- Квантование с использованием 1.5-бит, 2-бит, 3-бит, 4-бит, 5-бит, 6-бит и 8-бит целочисленных представлений для более быстрого инференса и уменьшения использования памяти
+- Пользовательские ядра CUDA для запуска LLM на GPU NVIDIA (поддержка GPU AMD через HIP и GPU Moore Threads через MUSA)
+- Поддержка бэкендов Vulkan и SYCL
+- Гибридный инференс CPU+GPU для частичного ускорения моделей, превышающих общую емкость VRAM
 
-The `llama.cpp` project is the main playground for developing new features for the [ggml](https://github.com/ggml-org/ggml) library.
+Проект `llama.cpp` является основной площадкой для разработки новых функций для библиотеки [ggml](https://github.com/ggml-org/ggml).
 
 <details>
 <summary>Models</summary>
 
 Typically finetunes of the base models below are supported as well.
 
-Instructions for adding support for new models: [HOWTO-add-model.md](docs/development/HOWTO-add-model.md)
+Instructions for adding support for new models: [HOWTO-add-model.md](../docs/development/HOWTO-add-model.md)
 
 #### Text-only
 
@@ -138,7 +136,6 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [x] [FalconMamba Models](https://huggingface.co/collections/tiiuae/falconmamba-7b-66b9a580324dd1598b0f6d4a)
 - [x] [Jais](https://huggingface.co/inceptionai/jais-13b-chat)
 - [x] [Bielik-11B-v2.3](https://huggingface.co/collections/speakleash/bielik-11b-v23-66ee813238d9b526a072408a)
-- [x] [RWKV-7](https://huggingface.co/collections/shoumenchougou/rwkv7-gxx-gguf)
 - [x] [RWKV-6](https://github.com/BlinkDL/RWKV-LM)
 - [x] [QRWKV-6](https://huggingface.co/recursal/QRWKV6-32B-Instruct-Preview-v0.1)
 - [x] [GigaChat-20B-A3B](https://huggingface.co/ai-sage/GigaChat-20B-A3B-instruct)
@@ -207,7 +204,6 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 *(to have a project listed here, it should clearly state that it depends on `llama.cpp`)*
 
 - [AI Sublime Text plugin](https://github.com/yaroslavyaroslav/OpenAI-sublime-text) (MIT)
-- [BonzAI App](https://apps.apple.com/us/app/bonzai-your-local-ai-agent/id6752847988) (proprietary)
 - [cztomsik/ava](https://github.com/cztomsik/ava) (MIT)
 - [Dot](https://github.com/alexpinel/Dot) (GPL)
 - [eva](https://github.com/ylsdamxssjxxdd/eva) (MIT)
@@ -219,7 +215,6 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [llama.vim](https://github.com/ggml-org/llama.vim) (MIT)
 - [LARS](https://github.com/abgulati/LARS) (AGPL)
 - [Llama Assistant](https://github.com/vietanhdev/llama-assistant) (GPL)
-- [LlamaLib](https://github.com/undreamai/LlamaLib) (Apache-2.0)
 - [LLMFarm](https://github.com/guinmoon/LLMFarm?tab=readme-ov-file) (MIT)
 - [LLMUnity](https://github.com/undreamai/LLMUnity) (MIT)
 - [LMStudio](https://lmstudio.ai/) (proprietary)
@@ -274,60 +269,60 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 
 </details>
 
+## Поддерживаемые бэкенды
 
-## Supported backends
-
-| Backend | Target devices |
+| Бэкенд | Целевые устройства |
 | --- | --- |
-| [Metal](docs/build.md#metal-build) | Apple Silicon |
-| [BLAS](docs/build.md#blas-build) | All |
-| [BLIS](docs/backend/BLIS.md) | All |
-| [SYCL](docs/backend/SYCL.md) | Intel and Nvidia GPU |
-| [MUSA](docs/build.md#musa) | Moore Threads GPU |
-| [CUDA](docs/build.md#cuda) | Nvidia GPU |
-| [HIP](docs/build.md#hip) | AMD GPU |
-| [ZenDNN](docs/build.md#zendnn) | AMD CPU |
-| [Vulkan](docs/build.md#vulkan) | GPU |
-| [CANN](docs/build.md#cann) | Ascend NPU |
-| [OpenCL](docs/backend/OPENCL.md) | Adreno GPU |
-| [IBM zDNN](docs/backend/zDNN.md) | IBM Z & LinuxONE |
-| [WebGPU [In Progress]](docs/build.md#webgpu) | All |
-| [RPC](https://github.com/ggml-org/llama.cpp/tree/master/tools/rpc) | All |
-| [Hexagon [In Progress]](docs/backend/hexagon/README.md) | Snapdragon |
+| [Metal](../docs/build.md#metal-build) | Apple Silicon |
+| [BLAS](../docs/build.md#blas-build) | Все |
+| [BLIS](../docs/backend/BLIS.md) | Все |
+| [SYCL](../docs/backend/SYCL.md) | Intel и Nvidia GPU |
+| [MUSA](../docs/build.md#musa) | GPU компании Moore Threads |
+| [CUDA](../docs/build.md#cuda) | Nvidia GPU |
+| [HIP](../docs/build.md#hip) | AMD GPU |
+| [ZenDNN](../docs/build.md#zendnn) | AMD CPU |
+| [Vulkan](../docs/build.md#vulkan) | GPU |
+| [CANN](../docs/build.md#cann) | Ascend NPU |
+| [OpenCL](../docs/backend/OPENCL.md) | Adreno GPU |
+| [IBM zDNN](../docs/backend/zDNN.md) | IBM Z & LinuxONE |
+| [WebGPU [In Progress]](../docs/build.md#webgpu) | Все |
+| [RPC](https://github.com/ggml-org/llama.cpp/tree/master/tools/rpc) | Все |
+| [Hexagon [In Progress]](../docs/backend/hexagon/README.md) | Snapdragon |
 
-## Obtaining and quantizing models
+## Получение и квантование моделей
 
-The [Hugging Face](https://huggingface.co) platform hosts a [number of LLMs](https://huggingface.co/models?library=gguf&sort=trending) compatible with `llama.cpp`:
+Платформа [Hugging Face](https://huggingface.co) хостит [число LLM](https://huggingface.co/models?library=gguf&sort=trending), совместимых с `llama.cpp`:
 
-- [Trending](https://huggingface.co/models?library=gguf&sort=trending)
+- [Популярные](https://huggingface.co/models?library=gguf&sort=trending)
 - [LLaMA](https://huggingface.co/models?sort=trending&search=llama+gguf)
 
-You can either manually download the GGUF file or directly use any `llama.cpp`-compatible models from [Hugging Face](https://huggingface.co/) or other model hosting sites, such as [ModelScope](https://modelscope.cn/), by using this CLI argument: `-hf <user>/<model>[:quant]`. For example:
+Вы можете вручную загрузить файл GGUF или напрямую использовать любые модели, совместимые с `llama.cpp`, с [Hugging Face](https://huggingface.co/) или других сайтов хостинга моделей, таких как [ModelScope](https://modelscope.cn/), используя этот аргумент CLI: `-hf <user>/<model>[:quant]`. Например:
 
 ```sh
 llama-cli -hf ggml-org/gemma-3-1b-it-GGUF
 ```
 
-By default, the CLI would download from Hugging Face, you can switch to other options with the environment variable `MODEL_ENDPOINT`. For example, you may opt to downloading model checkpoints from ModelScope or other model sharing communities by setting the environment variable, e.g. `MODEL_ENDPOINT=https://www.modelscope.cn/`.
+По умолчанию CLI загружает модели с Hugging Face, вы можете переключиться на другие варианты с помощью переменной окружения `MODEL_ENDPOINT`. Например, вы можете выбрать загрузку чекпоинтов модели с ModelScope или других сообществ по обмену моделями, установив переменную окружения, например: `MODEL_ENDPOINT=https://www.modelscope.cn/`.
 
-After downloading a model, use the CLI tools to run it locally - see below.
+После загрузки модели используйте инструменты CLI для запуска её локально - см. ниже.
 
-`llama.cpp` requires the model to be stored in the [GGUF](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md) file format. Models in other data formats can be converted to GGUF using the `convert_*.py` Python scripts in this repo.
+`llama.cpp` требует, чтобы модель была сохранена в формате файла [GGUF](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md). Модели в других форматах данных могут быть преобразованы в GGUF с помощью Python-скриптов `convert_*.py` в этом репозитории.
 
-The Hugging Face platform provides a variety of online tools for converting, quantizing and hosting models with `llama.cpp`:
+Платформа Hugging Face предоставляет различные онлайн-инструменты для преобразования, квантизации и хостинга моделей с использованием `llama.cpp`:
 
-- Use the [GGUF-my-repo space](https://huggingface.co/spaces/ggml-org/gguf-my-repo) to convert to GGUF format and quantize model weights to smaller sizes
-- Use the [GGUF-my-LoRA space](https://huggingface.co/spaces/ggml-org/gguf-my-lora) to convert LoRA adapters to GGUF format (more info: https://github.com/ggml-org/llama.cpp/discussions/10123)
-- Use the [GGUF-editor space](https://huggingface.co/spaces/CISCai/gguf-editor) to edit GGUF meta data in the browser (more info: https://github.com/ggml-org/llama.cpp/discussions/9268)
-- Use the [Inference Endpoints](https://ui.endpoints.huggingface.co/) to directly host `llama.cpp` in the cloud (more info: https://github.com/ggml-org/llama.cpp/discussions/9669)
+- Используйте [GGUF-my-repo space](https://huggingface.co/spaces/ggml-org/gguf-my-repo), чтобы преобразовать в формат GGUF и сквантизировать веса модели до меньших размеров
+- Используйте [GGUF-my-LoRA space](https://huggingface.co/spaces/ggml-org/gguf-my-lora), чтобы преобразовать адаптеры LoRA в формат GGUF (более подробно: https://github.com/ggml-org/llama.cpp/discussions/10123)
+- Используйте [GGUF-editor space](https://huggingface.co/spaces/CISCai/gguf-editor), чтобы редактировать метаданные GGUF в браузере (более подробно: https://github.com/ggml-org/llama.cpp/discussions/9268)
+- Используйте [Inference Endpoints](https://ui.endpoints.huggingface.co/), чтобы напрямую размещать `llama.cpp` в облаке (более подробно: https://github.com/ggml-org/llama.cpp/discussions/9669)
 
-To learn more about model quantization, [read this documentation](tools/quantize/README.md)
+Чтобы узнать больше о квантизации моделей, [прочитайте эту документацию](../tools/quantize/README.md)
 
-## [`llama-cli`](tools/cli)
+## [`llama-cli`](../tools/cli)
 
-#### A CLI tool for accessing and experimenting with most of `llama.cpp`'s functionality.
+#### CLI-инструмент для доступа и экспериментирования с большинством функций `llama.cpp`.
 
-- <details open>
+
+<details open>
     <summary>Run in conversation mode</summary>
 
     Models with a built-in chat template will automatically activate conversation mode. If this doesn't occur, you can manually enable it by adding `-cnv` and specifying a suitable chat template with `--chat-template NAME`
@@ -337,14 +332,14 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     # > hi, who are you?
     # Hi there! I'm your helpful assistant! I'm an AI-powered chatbot designed to assist and provide information to users like you. I'm here to help answer your questions, provide guidance, and offer support on a wide range of topics. I'm a friendly and knowledgeable AI, and I'm always happy to help with anything you need. What's on your mind, and how can I assist you today?
-    #
     # > what is 1+1?
     # Easy peasy! The answer to 1+1 is... 2!
     ```
 
     </details>
 
-- <details>
+
+<details>
     <summary>Run in conversation mode with custom chat template</summary>
 
     ```bash
@@ -357,7 +352,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Constrain the output with a custom grammar</summary>
 
     ```bash
@@ -366,18 +362,18 @@ To learn more about model quantization, [read this documentation](tools/quantize
     # {"appointmentTime": "8pm", "appointmentDetails": "schedule a a call"}
     ```
 
-    The [grammars/](grammars/) folder contains a handful of sample grammars. To write your own, check out the [GBNF Guide](grammars/README.md).
+    The [grammars/](../grammars/) folder contains a handful of sample grammars. To write your own, check out the [GBNF Guide](../grammars/README.md).
 
     For authoring more complex JSON grammars, check out https://grammar.intrinsiclabs.ai/
 
     </details>
 
+## [`llama-server`](../tools/server)
 
-## [`llama-server`](tools/server)
+#### Легковесный, совместимый с [OpenAI API](https://github.com/openai/openai-openapi), HTTP-сервер для предоставления LLM.
 
-#### A lightweight, [OpenAI API](https://github.com/openai/openai-openapi) compatible, HTTP server for serving LLMs.
 
-- <details open>
+<details open>
     <summary>Start a local HTTP server with default configuration on port 8080</summary>
 
     ```bash
@@ -389,7 +385,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Support multiple-users and parallel decoding</summary>
 
     ```bash
@@ -399,7 +396,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Enable speculative decoding</summary>
 
     ```bash
@@ -409,7 +407,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Serve an embedding model</summary>
 
     ```bash
@@ -419,7 +418,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Serve a reranking model</summary>
 
     ```bash
@@ -429,7 +429,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Constrain all outputs with a grammar</summary>
 
     ```bash
@@ -442,12 +443,12 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
+## [`llama-perplexity`](../tools/perplexity)
 
-## [`llama-perplexity`](tools/perplexity)
+#### Инструмент для измерения [перплексии](../tools/perplexity/README.md) [^1] (и других метрик качества) модели по отношению к заданному тексту.
 
-#### A tool for measuring the [perplexity](tools/perplexity/README.md) [^1] (and other quality metrics) of a model over a given text.
 
-- <details open>
+<details open>
     <summary>Measure the perplexity over a text file</summary>
 
     ```bash
@@ -459,7 +460,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-- <details>
+
+<details>
     <summary>Measure KL divergence</summary>
 
     ```bash
@@ -470,11 +472,12 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
 [^1]: [https://huggingface.co/docs/transformers/perplexity](https://huggingface.co/docs/transformers/perplexity)
 
-## [`llama-bench`](tools/llama-bench)
+## [`llama-bench`](../tools/llama-bench)
 
-#### Benchmark the performance of the inference for various parameters.
+#### Проверьте производительность вывода для различных параметров.
 
-- <details open>
+
+<details open>
     <summary>Run default benchmark</summary>
 
     ```bash
@@ -485,17 +488,33 @@ To learn more about model quantization, [read this documentation](tools/quantize
     # | ------------------- | ---------: | ---------: | ---------- | ------: | ------------: | -------------------: |
     # | qwen2 1.5B Q4_0     | 885.97 MiB |     1.54 B | Metal,BLAS |      16 |         pp512 |      5765.41 ± 20.55 |
     # | qwen2 1.5B Q4_0     | 885.97 MiB |     1.54 B | Metal,BLAS |      16 |         tg128 |        197.71 ± 0.81 |
-    #
     # build: 3e0ba0e60 (4229)
     ```
 
     </details>
 
-## [`llama-simple`](examples/simple)
+## [`llama-run`](../tools/run)
 
-#### A minimal example for implementing apps with `llama.cpp`. Useful for developers.
+#### Пример использования для запуска моделей `llama.cpp`. Полезно для инференса. Используется с RamaLama [^3].
 
-- <details>
+
+<details>
+    <summary>Run a model with a specific prompt (by default it's pulled from Ollama registry)</summary>
+
+    ```bash
+    llama-run granite-code
+    ```
+
+    </details>
+
+[^3]: [RamaLama](https://github.com/containers/ramalama)
+
+## [`llama-simple`](../examples/simple)
+
+#### Минимальный пример реализации приложений с использованием `llama.cpp`. Полезен для разработчиков.
+
+
+<details>
     <summary>Basic text completion</summary>
 
     ```bash
@@ -506,49 +525,50 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
+## Вклад
 
-## Contributing
+- Вкладчики могут открывать PRs
+- Сотрудники будут приглашены на основе вклада
+- Организаторы могут пушить в ветки в репозитории `llama.cpp` и объединять PRs в ветку `master`
+- Любой вклад в управление задачами, PRs и проектами очень ценится!
+- Посмотрите [good first issues](https://github.com/ggml-org/llama.cpp/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) для задач, подходящих для первых вкладов
+- Прочтите [CONTRIBUTING.md](../CONTRIBUTING.md) для получения дополнительной информации
+- Убедитесь, что вы прочитали это: [Inference at the edge](https://github.com/ggml-org/llama.cpp/discussions/205)
+- Немного истории для тех, кто заинтересован: [Changelog podcast](https://changelog.com/podcast/532)
 
-- Contributors can open PRs
-- Collaborators will be invited based on contributions
-- Maintainers can push to branches in the `llama.cpp` repo and merge PRs into the `master` branch
-- Any help with managing issues, PRs and projects is very appreciated!
-- See [good first issues](https://github.com/ggml-org/llama.cpp/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for tasks suitable for first contributions
-- Read the [CONTRIBUTING.md](CONTRIBUTING.md) for more information
-- Make sure to read this: [Inference at the edge](https://github.com/ggml-org/llama.cpp/discussions/205)
-- A bit of backstory for those who are interested: [Changelog podcast](https://changelog.com/podcast/532)
+## Другая документация
 
-## Other documentation
+- [cli](../tools/cli/README.md)
+- [completion](../tools/completion/README.md)
+- [server](../tools/server/README.md)
+- [GBNF grammars](../grammars/README.md)
 
-- [cli](tools/cli/README.md)
-- [completion](tools/completion/README.md)
-- [server](tools/server/README.md)
-- [GBNF grammars](grammars/README.md)
+#### Разработческая документация
 
-#### Development documentation
+- [Как собрать](../docs/build.md)
+- [Запуск в Docker](../docs/docker.md)
+- [Сборка на Android](../docs/android.md)
+- [Решение проблем производительности](../docs/development/token_generation_performance_tips.md)
+- [Советы и хитрости GGML](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
 
-- [How to build](docs/build.md)
-- [Running on Docker](docs/docker.md)
-- [Build on Android](docs/android.md)
-- [Performance troubleshooting](docs/development/token_generation_performance_tips.md)
-- [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
+#### Основные статьи и информация о моделях
 
-#### Seminal papers and background on the models
-
-If your issue is with model generation quality, then please at least scan the following links and papers to understand the limitations of LLaMA models. This is especially important when choosing an appropriate model size and appreciating both the significant and subtle differences between LLaMA models and ChatGPT:
+Если ваша проблема связана с качеством генерации модели, то, пожалуйста, хотя бы сканируйте следующие ссылки и статьи, чтобы понять ограничения моделей LLaMA. Это особенно важно при выборе подходящего размера модели и признании как значительных, так и тонких различий между моделями LLaMA и ChatGPT:
 - LLaMA:
-    - [Introducing LLaMA: A foundational, 65-billion-parameter large language model](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
-    - [LLaMA: Open and Efficient Foundation Language Models](https://arxiv.org/abs/2302.13971)
+    - [Представление LLaMA: фундаментальная модель крупного языка с 65 миллиардами параметров](https://ai.facebook.com/blog/large-language-model-llama-meta-ai/)
+    - [LLaMA: открытые и эффективные фундаментальные языковые модели](https://arxiv.org/abs/2302.13971)
 - GPT-3
-    - [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165)
+    - [Языковые модели являются обучаемыми с небольшим количеством примеров](https://arxiv.org/abs/2005.14165)
 - GPT-3.5 / InstructGPT / ChatGPT:
-    - [Aligning language models to follow instructions](https://openai.com/research/instruction-following)
-    - [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155)
+    - [Согласование языковых моделей с инструкциями](https://openai.com/research/instruction-following)
+    - [Обучение языковых моделей следовать инструкциям с помощью обратной связи от человека](https://arxiv.org/abs/2203.02155)
 
 ## XCFramework
-The XCFramework is a precompiled version of the library for iOS, visionOS, tvOS,
-and macOS. It can be used in Swift projects without the need to compile the
-library from source. For example:
+
+XCFramework — это предварительно скомпилированная версия библиотеки для iOS, visionOS, tvOS
+и macOS. Ее можно использовать в проектах на Swift без необходимости компилировать
+библиотеку из исходного кода. Например:
+
 ```swift
 // swift-tools-version: 5.10
 // The swift-tools-version declares the minimum version of Swift required to build this package.
@@ -567,31 +587,35 @@ let package = Package(
             name: "LlamaFramework",
             url: "https://github.com/ggml-org/llama.cpp/releases/download/b5046/llama-b5046-xcframework.zip",
             checksum: "c19be78b5f00d8d29a25da41042cb7afa094cbf6280a225abe614b03b20029ab"
-        )
-    ]
-)
 ```
-The above example is using an intermediate build `b5046` of the library. This can be modified
-to use a different version by changing the URL and checksum.
 
-## Completions
-Command-line completion is available for some environments.
+Приведённый выше пример использует промежуточный сборку `b5046` библиотеки. Это можно изменить, чтобы использовать другую версию, изменив URL и контрольную сумму.
+
+## Завершения
+
+Завершение через командную строку доступно для некоторых сред.
 
 #### Bash Completion
+
 ```bash
 $ build/bin/llama-cli --completion-bash > ~/.llama-completion.bash
 $ source ~/.llama-completion.bash
 ```
-Optionally this can be added to your `.bashrc` or `.bash_profile` to load it
-automatically. For example:
+
+Опционально это можно добавить в ваш `.bashrc` или `.bash_profile`, чтобы загрузить его автоматически. Например:
+
 ```console
 $ echo "source ~/.llama-completion.bash" >> ~/.bashrc
 ```
 
-## Dependencies
+## Зависимости
 
-- [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Single-header HTTP server, used by `llama-server` - MIT license
-- [stb-image](https://github.com/nothings/stb) - Single-header image format decoder, used by multimodal subsystem - Public domain
-- [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
-- [miniaudio.h](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
-- [subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain
+- [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Однофайловый HTTP-сервер, используется `llama-server` - Лицензия MIT
+- [stb-image](https://github.com/nothings/stb) - Однофайловый декодер форматов изображений, используется мультимодульной подсистемой - Общественное достояние
+- [nlohmann/json](https://github.com/nlohmann/json) - Однофайловая библиотека JSON, используется различными инструментами/примерами - Лицензия MIT
+- [minja](https://github.com/google/minja) - Минимальный парсер Jinja на C++, используется различными инструментами/примерами - Лицензия MIT
+- [linenoise.cpp](.././tools/run/linenoise.cpp/linenoise.cpp) - Библиотека C++, предоставляющая возможности редактирования строк, похожие на readline, используется `llama-run` - Лицензия BSD 2-Clause
+- [curl](https://curl.se/) - Клиентская библиотека для передачи URL, используется различными инструментами/примерами - [Лицензия CURL](https://curl.se/docs/copyright.html)
+- [miniaudio.h](https://github.com/mackron/miniaudio) - Однофайловый декодер аудиоформатов, используется мультимодульной подсистемой - Общественное достояние
+- [subprocess.h](https://github.com/sheredom/subprocess.h) - Однофайловое решение для запуска процессов на C и C++ - Общественное достояние
+
