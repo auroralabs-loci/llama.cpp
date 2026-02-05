@@ -136,6 +136,7 @@ struct server_slot {
     }
 
     std::vector<common_adapter_lora_info> lora;
+    std::vector<common_adapter_lora_info> previous_lora;
     int32_t alora_invocation_start = -1;
 
     // sampling
@@ -191,6 +192,9 @@ struct server_slot {
 
         // clear alora start
         alora_invocation_start = -1;
+
+        lora.clear();
+        previous_lora.clear();
     }
 
     void init_sampler() const {
@@ -2576,8 +2580,11 @@ private:
         SRV_DBG("decoding batch, n_tokens = %d\n", batch.n_tokens);
 
         if (slot_batched) {
-            // apply lora, only need to do it once per batch
-            common_set_adapter_lora(ctx, slot_batched->lora);
+            if (!are_lora_equal(slot_batched->previous_lora, slot_batched->lora)) {
+                // apply lora, only need to do it once per batch
+                common_set_adapter_lora(ctx, slot_batched->lora);
+                slot_batched->previous_lora = slot_batched->lora;
+            }
 
             // if the lora is temporarily disabled for an alora, re-enable it
             // for next time
