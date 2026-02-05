@@ -47,11 +47,13 @@
 		upToMessageId
 	}: Props = $props();
 
-	let options = $derived(modelOptions().filter((option) => {
-		// Exclude models that are marked as not for webui use
-		const modelProps = modelsStore.getModelProps(option.model);
-		return modelProps?.webui !== false;
-	}));
+	let options = $derived(
+		modelOptions().filter((option) => {
+			// Exclude models that are marked as not for webui use
+			const modelProps = modelsStore.getModelProps(option.model);
+			return modelProps?.webui !== false;
+		})
+	);
 	let loading = $derived(modelsLoading());
 	let updating = $derived(modelsUpdating());
 	let activeId = $derived(selectedModelId());
