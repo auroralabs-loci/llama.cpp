@@ -145,7 +145,7 @@ while true; do
       conflict_target_name="upstream ${UPSTREAM_DEFAULT}"
     fi
 
-    if ! git merge-tree --write-tree "${merge_base}" "${pull_head_sha}" "${conflict_target}" &>/dev/null; then
+    if ! git merge-tree --write-tree --merge-base "${merge_base}" "${pull_head_sha}" "${conflict_target}" &>/dev/null; then
       echo "  PR #${pull_num}: has conflicts with ${conflict_target_name}. Skipping."
       if [ "$manual_mode" -eq 1 ]; then
         echo "::error::PR has merge conflicts with ${conflict_target_name}"
