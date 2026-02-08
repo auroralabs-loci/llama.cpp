@@ -7,6 +7,9 @@
 #include "ggml-metal-context.h"
 #include "ggml-metal-ops.h"
 
+#include <mutex>
+#include <string>
+
 #define GGML_METAL_NAME "MTL"
 #define GGML_METAL_MAX_DEVICES 16
 
@@ -560,7 +563,11 @@ static ggml_backend_i ggml_backend_metal_i = {
     /* .free                    = */ ggml_backend_metal_free,
     /* .set_tensor_async        = */ ggml_backend_metal_set_tensor_async,
     /* .get_tensor_async        = */ ggml_backend_metal_get_tensor_async,
+    /* .get_tensor_2d_async     = */ NULL,
+    /* .set_tensor_2d_async     = */ NULL,
     /* .cpy_tensor_async        = */ ggml_backend_metal_cpy_tensor_async, // only needed for multi-GPU setups
+    /* .shfl_tensor_async       = */ NULL,
+    /* .allreduce_tensor_async  = */ NULL,
     /* .synchronize             = */ ggml_backend_metal_synchronize,
     /* .graph_plan_create       = */ NULL,
     /* .graph_plan_free         = */ NULL,

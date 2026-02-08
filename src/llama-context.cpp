@@ -972,9 +972,11 @@ void llama_context::set_abort_callback(bool (*abort_callback)(void * data), void
 
     for (auto & backend : backends) {
         auto * reg = ggml_backend_dev_backend_reg(ggml_backend_get_device(backend.get()));
-        auto * set_abort_callback_fn = (ggml_backend_set_abort_callback_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_abort_callback");
-        if (set_abort_callback_fn) {
-            set_abort_callback_fn(backend.get(), this->abort_callback, this->abort_callback_data);
+        if (reg) {
+            auto * set_abort_callback_fn = (ggml_backend_set_abort_callback_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_abort_callback");
+            if (set_abort_callback_fn) {
+                set_abort_callback_fn(backend.get(), this->abort_callback, this->abort_callback_data);
+            }
         }
     }
 }
@@ -1027,11 +1029,7 @@ bool llama_context::set_sampler(llama_seq_id seq_id, llama_sampler * sampler) {
         llama_sampler_chain_n(sampler) > 0;
 
     if (sampler && can_offload) {
-        ggml_backend_buffer_type_t buft = ggml_backend_dev_buffer_type(model.dev_output());
-        auto * host_buft = ggml_backend_dev_host_buffer_type(model.dev_output());
-        if (host_buft) {
-            buft = host_buft;
-        }
+        auto * buft = ggml_backend_dev_buffer_type(model.dev_output());
 
         sampler->iface->backend_init(sampler, buft);
 
