@@ -88,6 +88,16 @@ while true; do
     pull_head_sha=$(jq -r '.head.sha' <<<"$pr")
     pull_head_ref=$(jq -r '.head.ref' <<<"$pr")
 
+    is_draft=$(jq -r '.draft' <<<"$pr")
+    if [ "$is_draft" = "true" ]; then
+      if [ "$manual_mode" -eq 1 ]; then
+        echo "::notice::PR #${pull_num} is a draft PR. Proceeding anyway (manual mode)."
+      else
+        echo "  PR #${pull_num}: is a draft. Skipping."
+        continue
+      fi
+    fi
+
     # Skip cutoff check in manual mode
     if [ "$manual_mode" -eq 0 ]; then
       updated_at=$(jq -r '.updated_at' <<<"$pr")

@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: sync-upstream-pulls
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sync-pulls:
