@@ -44,8 +44,6 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define ANSI_BOLD          "\x1b[1m"
 
-namespace console {
-
 #if defined (_WIN32)
     namespace {
         // Use private-use unicode values to represent special keys that are not reported
@@ -80,11 +78,20 @@ namespace console {
     static termios      initial_state;
 #endif
 
+    console::console() {
+        console::instance = std::make_unique<console>(console());
+    }
+
+    console::~console() {
+        // cleanup console after program finishing automatically
+        console::cleanup();
+    }
+
     //
     // Init and cleanup
     //
 
-    void init(bool use_simple_io, bool use_advanced_display) {
+    void console::init(bool use_simple_io, bool use_advanced_display) {
         advanced_display = use_advanced_display;
         simple_io = use_simple_io;
 #if defined(_WIN32)
@@ -146,9 +153,9 @@ namespace console {
 #endif
     }
 
-    void cleanup() {
+    void console::cleanup() {
         // Reset console display
-        set_display(DISPLAY_TYPE_RESET);
+        console::set_display(DISPLAY_TYPE_RESET);
 
 #if !defined(_WIN32)
         // Restore settings on POSIX systems
@@ -168,7 +175,7 @@ namespace console {
     //
 
     // Keep track of current display and only emit ANSI code if it changes
-    void set_display(display_type display) {
+    void console::set_display(display_type display) {
         if (advanced_display && current_display != display) {
             common_log_flush(common_log_main());
             switch(display) {
@@ -1055,83 +1062,80 @@ namespace console {
         return multiline_input;
     }
 
-    bool readline(std::string & line, bool multiline_input) {
+    bool console::readline(std::string & line, bool multiline_input) {
         if (simple_io) {
             return readline_simple(line, multiline_input);
         }
         return readline_advanced(line, multiline_input);
     }
 
-    namespace spinner {
-        static const char LOADING_CHARS[] = {'|', '/', '-', '\\'};
-        static std::condition_variable cv_stop;
-        static std::thread th;
-        static size_t frame = 0; // only modified by one thread
-        static bool running = false;
-        static std::mutex mtx;
-        static auto wait_time = std::chrono::milliseconds(100);
-        static void draw_next_frame() {
-            // don't need lock because only one thread modifies running
-            frame = (frame + 1) % sizeof(LOADING_CHARS);
-            replace_last(LOADING_CHARS[frame]);
-            fflush(out);
+    static const char LOADING_CHARS[] = {'|', '/', '-', '\\'};
+    static std::condition_variable cv_stop;
+    static std::thread th;
+    static size_t frame = 0; // only modified by one thread
+    static bool running = false;
+    static std::mutex mtx;
+    static auto wait_time = std::chrono::milliseconds(100);
+    static void draw_next_frame() {
+        // don't need lock because only one thread modifies running
+        frame = (frame + 1) % sizeof(LOADING_CHARS);
+        replace_last(LOADING_CHARS[frame]);
+        fflush(out);
+    }
+    void console::start() {
+        std::unique_lock<std::mutex> lock(mtx);
+        if (simple_io || running) {
+            return;
         }
-        void start() {
+        common_log_flush(common_log_main());
+        fprintf(out, "%c", LOADING_CHARS[0]);
+        fflush(out);
+        frame = 1;
+        running = true;
+        th = std::thread([]() {
             std::unique_lock<std::mutex> lock(mtx);
-            if (simple_io || running) {
+            while (true) {
+                if (cv_stop.wait_for(lock, wait_time, []{ return !running; })) {
+                    break;
+                }
+                draw_next_frame();
+            }
+        });
+    }
+    void console::stop() {
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+            if (simple_io || !running) {
                 return;
             }
-            common_log_flush(common_log_main());
-            fprintf(out, "%c", LOADING_CHARS[0]);
-            fflush(out);
-            frame = 1;
-            running = true;
-            th = std::thread([]() {
-                std::unique_lock<std::mutex> lock(mtx);
-                while (true) {
-                    if (cv_stop.wait_for(lock, wait_time, []{ return !running; })) {
-                        break;
-                    }
-                    draw_next_frame();
-                }
-            });
+            running = false;
+            cv_stop.notify_all();
         }
-        void stop() {
-            {
-                std::unique_lock<std::mutex> lock(mtx);
-                if (simple_io || !running) {
-                    return;
-                }
-                running = false;
-                cv_stop.notify_all();
-            }
-            if (th.joinable()) {
-                th.join();
-            }
-            replace_last(' ');
-            pop_cursor();
-            fflush(out);
+        if (th.joinable()) {
+            th.join();
         }
+        replace_last(' ');
+        pop_cursor();
+        fflush(out);
     }
 
-    void log(const char * fmt, ...) {
+    void console::log(const char * fmt, ...) {
         va_list args;
         va_start(args, fmt);
         vfprintf(out, fmt, args);
         va_end(args);
     }
 
-    void error(const char * fmt, ...) {
+    void console::error(const char * fmt, ...) {
         va_list args;
         va_start(args, fmt);
         display_type cur = current_display;
-        set_display(DISPLAY_TYPE_ERROR);
+        console::set_display(DISPLAY_TYPE_ERROR);
         vfprintf(out, fmt, args);
-        set_display(cur); // restore previous color
+        console::set_display(cur); // restore previous color
         va_end(args);
     }
 
-    void flush() {
+    void console::flush() {
         fflush(out);
     }
-}
