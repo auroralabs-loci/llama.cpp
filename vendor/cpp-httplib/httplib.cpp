@@ -117,6 +117,8 @@ time_t parse_http_date(const std::string &date_str) {
 
 #ifdef _WIN32
   return _mkgmtime(&tm_buf);
+#elif defined _AIX
+  return mktime(&tm_buf);
 #else
   return timegm(&tm_buf);
 #endif
