@@ -4280,6 +4280,24 @@ class Qwen3MoeModel(Qwen2MoeModel):
         super().set_vocab()
 
 
+@ModelBase.register("Qwen3OmniMoeForConditionalGeneration")
+class Qwen3OmniMoeModel(Qwen2MoeModel):
+    model_arch = gguf.MODEL_ARCH.QWEN3OMNIMOE
+
+    def set_vocab(self):
+        super().set_vocab()
+        # Qwen3-Omni lacks tokenizer.json, so token IDs must be set explicitly
+        self.gguf_writer.add_eos_token_id(151645)  # <|im_end|> - required for generation
+        self.gguf_writer.add_pad_token_id(151643)  # <|endoftext|> - required for batching
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("thinker."):
+            name = name.replace("thinker.", "", 1)
+        if name.startswith(("audio_tower.", "visual.", "talker.", "code2wav.")):
+            return []
+        return super().modify_tensors(data_torch, name, bid)
+
+
 @ModelBase.register("Qwen3NextForCausalLM")
 class Qwen3NextModel(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3NEXT
