@@ -1,0 +1,80 @@
+name: Sync Upstream PRs
+on:
+  schedule:
+    - cron: '30 * * * *'  # hourly at :30, controlled by SYNC_PRS_HOURS
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'Upstream PR URL to mirror (e.g., https://github.com/owner/repo/pull/123)'
+        required: false
+        type: string
+      base_sha:
+        description: 'Upstream commit SHA: alone creates loci/main-{sha} branch, with pr_url overrides merge-base with main'
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-pulls
+  cancel-in-progress: false
+
+jobs:
+  sync-pulls:
+    if: vars.UPSTREAM_REPO != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/overlay')
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+      UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
+      SYNC_HOURS: '${{ vars.SYNC_PRS_HOURS }}'
+      MAX_UPSTREAM_PRS: '${{ vars.MIRROR_MAX_UPSTREAM_PRS }}'
+      UPSTREAM_PR_LOOKBACK_DAYS: '${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}'
+
+    steps:
+      - name: Check schedule
+        id: schedule
+        if: github.event_name == 'schedule'
+        run: |
+          current_hour=$(date -u +%-H)
+          if [ -z "$SYNC_HOURS" ]; then
+            echo "SYNC_PRS_HOURS not set, running by default."
+          elif [[ ",$SYNC_HOURS," != *",$current_hour,"* ]]; then
+            echo "Hour ${current_hour} not in schedule (${SYNC_HOURS}). Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Hour ${current_hour} matches schedule (${SYNC_HOURS}). Running."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.schedule.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Resolve upstream's default branch
+        if: steps.schedule.outputs.skip != 'true'
+        id: upstream
+        shell: bash -euo pipefail {0}
+        run: |
+          default_branch=$(gh api "repos/${UPSTREAM_REPO}" --jq .default_branch)
+          echo "default_branch=${default_branch}" >> "$GITHUB_OUTPUT"
+          echo "Default branch: ${default_branch}"
+
+      - name: Fetch and process upstream PRs
+        if: steps.schedule.outputs.skip != 'true'
+        id: refresh
+        env:
+          UPSTREAM_DEFAULT: ${{ steps.upstream.outputs.default_branch }}
+          UPSTREAM_PR_LOOKBACK_DAYS: ${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}
+          MAX_UPSTREAM_PRS: ${{ vars.MIRROR_MAX_UPSTREAM_PRS }}
+          PR_URL: ${{ github.event.inputs.pr_url }}
+          BASE_SHA: ${{ github.event.inputs.base_sha }}
+        run: bash .github/scripts/fetch-upstream-prs.sh
+
+      - name: Upsert mirror branches & PRs
+        if: steps.schedule.outputs.skip != 'true' && steps.refresh.outputs.prs_to_sync == 'yes'
+        run: bash .github/scripts/upsert-mirror-prs.sh
