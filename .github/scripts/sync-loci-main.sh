@@ -21,6 +21,18 @@ base_sha="$1"
 short_sha="${base_sha:0:7}"
 loci_main_branch="loci/main-${short_sha}"
 
+# Update main branch if base_sha is newer than what's already there
+if ! git merge-base --is-ancestor "$base_sha" "refs/remotes/origin/main" 2>/dev/null; then
+  echo "Commit ${base_sha} not in main. Updating main branch." >&2
+  git checkout -B main "$base_sha"
+  git restore --source refs/remotes/origin/overlay -- .github/workflows/loci-analysis.yml || true
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A
+    git commit -m "Add loci-analysis workflow from overlay"
+  fi
+  git push origin "main:refs/heads/main" --force
+fi
+
 if git ls-remote --exit-code --heads origin "refs/heads/${loci_main_branch}" &>/dev/null; then
   git fetch origin "${loci_main_branch}:refs/remotes/origin/${loci_main_branch}" 2>/dev/null || true
 
@@ -28,6 +40,7 @@ if git ls-remote --exit-code --heads origin "refs/heads/${loci_main_branch}" &>/
   branch_hash=$(git rev-parse "refs/remotes/origin/${loci_main_branch}:.github/workflows/loci-analysis.yml" 2>/dev/null || true)
 
   if [ "$overlay_hash" = "$branch_hash" ]; then
+    git checkout origin/overlay -- .
     echo "$loci_main_branch"
     exit 0 # branch is up-to-date
   fi

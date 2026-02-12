@@ -138,9 +138,19 @@ while true; do
     if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$merge_base"); then
       : # Branch already up-to-date
     else
-      # Branch was created/updated - in scheduled mode, skip PR until next run
+      # Branch was created/updated — push pending branch and skip PR creation
       if [ "$manual_mode" -eq 0 ]; then
-        echo "  PR #${pull_num}: created/updated ${loci_main_branch}. Skipping PR until next run."
+        pending_branch="loci/pending-pr-${pull_num}-${sanitized_branch}"
+        echo "  PR #${pull_num}: ${loci_main_branch} just triggered to create/update. Pushing pending branch: ${pending_branch}."
+
+        if git show-ref --verify --quiet "refs/remotes/upstream/pr/${pull_num}"; then
+          git branch --no-track -f "${pending_branch}" "refs/remotes/upstream/pr/${pull_num}"
+        else
+          git fetch upstream "refs/pull/${pull_num}/head:refs/heads/${pending_branch}" || \
+          git fetch upstream "${pull_head_sha}:refs/heads/${pending_branch}"
+        fi
+
+        git push origin "refs/heads/${pending_branch}:refs/heads/${pending_branch}" --force
         continue
       else
         echo "  PR #${pull_num}: created/updated ${loci_main_branch}. Continuing with PR."
@@ -221,8 +231,14 @@ while true; do
 done
 
 if [ "$selected_pulls_count" -eq 0 ]; then
+  latest_upstream_sha=$(git rev-parse "refs/remotes/upstream/${UPSTREAM_DEFAULT}")
+  echo "No PRs found. Syncing latest upstream ${UPSTREAM_DEFAULT} (${latest_upstream_sha})."
+  if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$latest_upstream_sha"); then
+    echo "${loci_main_branch} already up-to-date."
+  else
+    echo "Created/updated ${loci_main_branch}."
+  fi
   echo "prs_to_sync=no" >> "$GITHUB_OUTPUT"
-  echo "No valid upstream PRs to sync"
 else
   echo "prs_to_sync=yes" >> "$GITHUB_OUTPUT"
   echo "Selected ${selected_pulls_count} upstream PRs to process"

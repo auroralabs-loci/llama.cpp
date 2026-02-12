@@ -8,6 +8,9 @@ set -euo pipefail
 #   GH_TOKEN         - GitHub token for API calls
 #   GITHUB_REPOSITORY - current repo
 
+SCRIPT_DIR="$(dirname "$0")"
+source "$SCRIPT_DIR/utils.sh"
+
 git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
 
 while read -r line; do
@@ -39,20 +42,7 @@ while read -r line; do
   fi
   git push origin "refs/heads/${loci_pr_branch}:refs/heads/${loci_pr_branch}" --force
 
-  # Check for existing PR with same head targeting the base branch
-  existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$loci_pr_branch" --base "$target_base" --json number --jq '.[0].number // empty' 2>/dev/null || true)
-
-  if [ -n "${existing}" ]; then
-    echo "Mirrored PR #${existing} already exists. Branch updated."
-  else
-    echo "Creating mirrored PR targeting ${target_base}."
-    PR_BODY=$(printf '> [!NOTE]\n> Source pull request: [%s#%s](https://github.com/%s/pull/%s)\n\n%s' "$UPSTREAM_REPO" "$num" "$UPSTREAM_REPO" "$num" "$body")
-    gh pr create --repo "$GITHUB_REPOSITORY" \
-      --head "${loci_pr_branch}" \
-      --base "$target_base" \
-      --title "UPSTREAM PR #${num}: ${title}" \
-      --body "$PR_BODY"
-  fi
+  upsert_mirror_pr "$loci_pr_branch" "$target_base" "$num"
 
   echo "::endgroup::"
 done < pulls.ndjson

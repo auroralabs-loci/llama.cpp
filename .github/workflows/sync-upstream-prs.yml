@@ -77,4 +77,4 @@ jobs:
 
       - name: Upsert mirror branches & PRs
         if: steps.schedule.outputs.skip != 'true' && steps.refresh.outputs.prs_to_sync == 'yes'
-        run: bash .github/scripts/upsert-mirror-prs.sh
+        run: bash .github/scripts/process-prs.sh
