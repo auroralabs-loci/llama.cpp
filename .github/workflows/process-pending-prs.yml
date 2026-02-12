@@ -1,0 +1,32 @@
+name: Process Pending PRs
+on:
+  schedule:
+    - cron: '00 * * * *'  # hourly at :00
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: process-pending-prs
+  cancel-in-progress: false
+
+jobs:
+  process:
+    if: vars.UPSTREAM_REPO != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/overlay')
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+      UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+
+      - name: Process pending PRs
+        run: bash .github/scripts/process-pending-prs.sh
