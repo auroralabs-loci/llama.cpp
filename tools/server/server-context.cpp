@@ -74,6 +74,9 @@ struct server_slot {
     int32_t n_prompt_tokens_cache     = 0;
     int32_t n_prompt_tokens_processed = 0;
 
+    int32_t n_batches_total     = 0;
+    int32_t n_batches_processed = 0;
+
     size_t last_nl_pos = 0;
 
     std::string  generated_text;
@@ -86,9 +89,10 @@ struct server_slot {
 
     std::vector<completion_token_output> generated_token_probs;
 
-    bool has_next_token = true;
-    bool has_new_line   = false;
-    bool truncated      = false;
+    bool has_next_token       = true;
+    bool has_new_line         = false;
+    bool truncated            = false;
+    bool prompt_batch_in_eval = false;
 
     stop_type stop;
 
@@ -165,6 +169,9 @@ struct server_slot {
         SLT_DBG(*this, "%s", "\n");
 
         n_prompt_tokens_cache = 0;
+        n_batches_total       = 0;
+        n_batches_processed   = 0;
+        prompt_batch_in_eval  = false;
 
         last_nl_pos    = 0;
         generated_text = "";
@@ -537,6 +544,8 @@ public:
     // note: chat_params must not be refreshed upon existing sleeping state
     server_chat_params chat_params;
 
+    std::vector<server_slot *> prompt_slots_current_batch;
+
     ~server_context_impl() {
         if (!sleeping) {
             // destroy() is already called when entering sleeping state
@@ -548,6 +557,43 @@ public:
 private:
     // note: accessing these fields outside of this class is not thread-safe
     // use server_context methods instead
+
+    void emit_prompt_progress_for_current_batch() {
+        if (prompt_slots_current_batch.empty()) {
+            return;
+        }
+
+        for (auto * slot : prompt_slots_current_batch) {
+            if (slot->state != SLOT_STATE_PROCESSING_PROMPT) {
+                continue;
+            }
+
+            if (!slot->task->params.stream) {
+                continue;
+            }
+
+            if (slot->n_batches_total < 2) {
+                continue;
+            }
+
+            slot->n_batches_processed = std::min(slot->n_batches_processed + 1, slot->n_batches_total);
+
+            const int32_t processed = std::min<int32_t>(
+                (int32_t) ((int64_t) slot->n_batches_processed * slot->task->n_tokens() /
+                                     std::max(1, slot->n_batches_total)),
+                slot->task->n_tokens());
+
+            send_partial_response(*slot, {}, true, processed);
+        }
+    }
+
+    void clear_prompt_slots_in_batch() {
+        for (auto * slot : prompt_slots_current_batch) {
+            slot->prompt_batch_in_eval = false;
+        }
+
+        prompt_slots_current_batch.clear();
+    }
 
     common_params params_base;
 
@@ -1396,7 +1442,7 @@ private:
         return true;
     }
 
-    void send_partial_response(server_slot & slot, const completion_token_output & tkn, bool is_progress) {
+    void send_partial_response(server_slot & slot, const completion_token_output & tkn, bool is_progress, int32_t progress_override = -1) {
         auto res = std::make_unique<server_task_result_cmpl_partial>();
 
         res->id    = slot.task->id;
@@ -1406,7 +1452,8 @@ private:
             res->is_progress        = true;
             res->progress.total     = slot.task->n_tokens();
             res->progress.cache     = slot.n_prompt_tokens_cache;
-            res->progress.processed = slot.prompt.tokens.size();
+            const int32_t processed = progress_override >= 0 ? progress_override : (int32_t) slot.prompt.tokens.size();
+            res->progress.processed = std::min<int32_t>(processed, slot.task->n_tokens());
             res->progress.time_ms   = (ggml_time_us() - slot.t_start_process_prompt) / 1000;
         } else {
             res->content = tkn.text_to_send;
@@ -2102,6 +2149,8 @@ private:
         float  alora_scale       = -1.0f;
         size_t alora_disabled_id = 0;
 
+        clear_prompt_slots_in_batch();
+
         // next, batch any pending prompts without exceeding n_batch
         if (params_base.cont_batching || batch.n_tokens == 0) {
             for (auto & slot : slots) {
@@ -2128,6 +2177,10 @@ private:
                     if (slot.state == SLOT_STATE_STARTED) {
                         slot.t_start_process_prompt = ggml_time_us();
                         slot.t_start_generation = 0;
+
+                        const int32_t batch_size = std::max<int32_t>(1, llama_n_batch(ctx));
+                        slot.n_batches_total     = (slot.task->n_tokens() + batch_size - 1) / batch_size;
+                        slot.n_batches_processed = 0;
 
                         slot.state = SLOT_STATE_PROCESSING_PROMPT;
 
@@ -2504,6 +2557,11 @@ private:
                             slot.task->need_embd());
                         slot.prompt.tokens.push_back(cur_tok);
 
+                        if (!slot.prompt_batch_in_eval) {
+                            slot.prompt_batch_in_eval = true;
+                            prompt_slots_current_batch.push_back(&slot);
+                        }
+
                         slot.n_prompt_tokens_processed++;
 
                         // process the last few tokens of the prompt separately in order to allow for a checkpoint to be created.
@@ -2618,6 +2676,10 @@ private:
             const int ret = llama_decode(ctx, batch_view);
 
             metrics.on_decoded(slots);
+
+            emit_prompt_progress_for_current_batch();
+
+            clear_prompt_slots_in_batch();
 
             if (ret != 0) {
                 {
