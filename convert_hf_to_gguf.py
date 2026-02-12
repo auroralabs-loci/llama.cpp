@@ -5610,7 +5610,12 @@ class BertModel(TextModel):
             if toktype == gguf.TokenType.CONTROL:
                 return tok
             if tok.startswith("##"):
-                return tok[2:]
+                suffix = tok[2:]
+                # If the suffix resembles a special token, keep the original to avoid collision
+                # E.g., preserve "##[1]" to avoid conflict with an existing "[1]" token.
+                if suffix.startswith("[") and suffix.endswith("]"):
+                    return tok
+                return suffix
             return "\u2581" + tok
         assert len(tokens) == len(toktypes)
         tokens = list(map(phantom, tokens, toktypes))
