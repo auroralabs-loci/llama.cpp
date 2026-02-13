@@ -15,6 +15,7 @@
 
 using json = nlohmann::ordered_json;
 
+
 static void parse_prefixed_json_tool_call_array(common_chat_msg_parser & builder,
                                                 const common_regex &     prefix,
                                                 size_t                   rstrip_prefix = 0) {
