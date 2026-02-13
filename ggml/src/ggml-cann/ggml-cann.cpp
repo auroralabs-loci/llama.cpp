@@ -1877,6 +1877,8 @@ static bool ggml_cann_compute_forward(ggml_backend_cann_context & ctx, struct gg
             break;
         case GGML_OP_OUT_PROD:
             ggml_cann_out_prod(ctx, dst);
+        case GGML_OP_GATED_LINEAR_ATTN:
+            ggml_cann_gated_linear_attn(ctx, dst);
             break;
         case GGML_OP_GATED_LINEAR_ATTN:
             ggml_cann_gated_linear_attn(ctx, dst);
