@@ -3082,6 +3082,15 @@ static void ggml_vk_load_shaders(vk_device& device) {
         m_align =  64;
         s_align =  32;
 
+        if ((device->vendor_id == VK_VENDOR_ID_INTEL) && (device->driver_id == vk::DriverId::eIntelProprietaryWindows)) {
+            if (device->coopmat_support && device->architecture == INTEL_XE2) {
+                // Xe2/Xe3 with coopmat enabled - warptile performance tuning
+                m_warptile = { 512, 128, 128, 16, subgroup_size_8, 32, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
+                m_warptile_mmq = { 512, 128, 128, 32, subgroup_size_8, 32, 2, tm_m, tn_m, tk_m, subgroup_size_8 };
+                m_mmq_wg_denoms = m_wg_denoms = { 128, 128, 1 };
+            }
+        }
+
         for (uint32_t i = 0; i < GGML_TYPE_COUNT; ++i) {
             ggml_type t = (ggml_type)i;
             // Disable medium and large matrix multiplication if not enough shared memory is available
