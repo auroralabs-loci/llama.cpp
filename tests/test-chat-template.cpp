@@ -551,13 +551,13 @@ int main_automated_tests(void) {
         }
     };
     std::vector<char> formatted_chat(1024);
-    int32_t res;
+    int64_t res;
 
     // list all supported templates
     std::vector<const char *> supported_tmpl;
     res = llama_chat_builtin_templates(nullptr, 0);
     assert(res > 0);
-    supported_tmpl.resize(res);
+    supported_tmpl.resize((size_t)res);
     res = llama_chat_builtin_templates(supported_tmpl.data(), supported_tmpl.size());
     std::cout << "Built-in chat templates:\n";
     for (auto tmpl : supported_tmpl) {
@@ -580,7 +580,7 @@ int main_automated_tests(void) {
             formatted_chat.data(),
             formatted_chat.size()
         );
-        formatted_chat.resize(res);
+        formatted_chat.resize((size_t)res);
         std::string output(formatted_chat.data(), formatted_chat.size());
         if (output != test_case.expected_output) {
             std::cout << "Expected:\n" << test_case.expected_output << "\n";
