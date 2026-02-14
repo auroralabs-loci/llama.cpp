@@ -557,6 +557,7 @@ struct gguf_context * gguf_init_from_file_impl(FILE * file, struct gguf_init_par
                 ok = false;
                 break;
             }
+
         }
         if (!ok) {
             break;
@@ -639,7 +640,13 @@ struct gguf_context * gguf_init_from_file_impl(FILE * file, struct gguf_init_par
                 gguf_free(ctx);
                 return nullptr;
             }
-            size_t padded_size = GGML_PAD(ggml_nbytes(&ti.t), ctx->alignment);
+            size_t nbytes = ggml_nbytes_safe(&ti.t);
+            if (nbytes == SIZE_MAX) {
+                GGML_LOG_ERROR("%s: tensor '%s' size overflow\n", __func__, ti.t.name);
+                gguf_free(ctx);
+                return nullptr;
+            }
+            size_t padded_size = GGML_PAD(nbytes, ctx->alignment);
             if (SIZE_MAX - ctx->size < padded_size) {
                 GGML_LOG_ERROR("%s: tensor '%s' size overflow, cannot accumulate size %zu + %zu\n",
                     __func__, ti.t.name, ctx->size, padded_size);
