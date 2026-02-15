@@ -3468,6 +3468,9 @@ static bool ggml_opencl_supports_op(ggml_backend_dev_t dev, const struct ggml_te
                 case GGML_UNARY_OP_SOFTPLUS:
                    return (op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32) ||
                           (op->src[0]->type == GGML_TYPE_F16 && op->type == GGML_TYPE_F16);
+                case GGML_UNARY_OP_SOFTPLUS:
+                   return (op->src[0]->type == GGML_TYPE_F32 && op->type == GGML_TYPE_F32) ||
+                          (op->src[0]->type == GGML_TYPE_F16 && op->type == GGML_TYPE_F16);
                 default:
                     return false;
             }
