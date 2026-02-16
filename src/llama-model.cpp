@@ -1742,6 +1742,10 @@ void llama_model::load_hparams(llama_model_loader & ml) {
 
                 hparams.f_attn_temp_offset = 0.0f;
 
+                // (optional) temperature tuning - used by mistral-large
+                ml.get_key(LLM_KV_ATTENTION_TEMPERATURE_SCALE,  hparams.f_attn_temp_scale,       false);
+                ml.get_key(LLM_KV_ATTENTION_TEMPERATURE_LENGTH, hparams.n_attn_temp_floor_scale, false);
+
                 switch (hparams.n_layer) {
                     case 27: type = LLM_TYPE_16B; break;
                     case 47: type = LLM_TYPE_30B_A3B; break;
