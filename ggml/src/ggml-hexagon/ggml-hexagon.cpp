@@ -2151,7 +2151,7 @@ static bool ggml_hexagon_supported_ssm_conv(const struct ggml_hexagon_session * 
         return false;
     }
 
-    // Check IO tensor shapes
+    // Check IO tensor shapes and dims
     if (src0->ne[3] != 1 || src1->ne[2] != 1 || src1->ne[3] != 1 || dst->ne[3] != 1) {
         return false; // src0 should be effectively 3D
     }
@@ -2168,13 +2168,6 @@ static bool ggml_hexagon_supported_ssm_conv(const struct ggml_hexagon_session * 
         return false;
     }
     if (dst->ne[0] != d_inner || dst->ne[1] != n_t || dst->ne[2] != n_s) {
-        return false;
-    }
-
-    if (src0->nb[0] != sizeof(float) || src0->nb[1] != src0->ne[0] * sizeof(float)) {
-        return false;
-    }
-    if (src1->nb[0] != sizeof(float)) {
         return false;
     }
 
