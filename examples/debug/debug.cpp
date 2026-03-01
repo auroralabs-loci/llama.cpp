@@ -43,6 +43,16 @@ static bool has_pooling(llama_context * ctx) {
     }
 }
 
+static bool has_pooling(llama_context * ctx) {
+    switch (llama_pooling_type(ctx)) {
+        case LLAMA_POOLING_TYPE_NONE:
+        case LLAMA_POOLING_TYPE_UNSPECIFIED:
+            return false;
+        default:
+            return true;
+    }
+}
+
 struct output_data {
     float *                  data_ptr    = nullptr;
     int                      data_size   = 0;
