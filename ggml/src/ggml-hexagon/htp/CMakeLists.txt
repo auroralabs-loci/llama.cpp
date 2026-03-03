@@ -118,7 +118,6 @@ if (_hmx_idx GREATER_EQUAL 0)
     target_sources(${HTP_LIB} PRIVATE
         hmx/hmx-matmul-ops.c
         hmx/hmx-flash-attn-ops.c
-        hmx/hmx-rms-norm-ops.c
         hmx/precompute-table.c
     )
 
@@ -126,7 +125,6 @@ if (_hmx_idx GREATER_EQUAL 0)
     set_source_files_properties(
         hmx/hmx-matmul-ops.c
         hmx/hmx-flash-attn-ops.c
-        hmx/hmx-rms-norm-ops.c
         PROPERTIES COMPILE_OPTIONS "-mhmx"
     )
 
