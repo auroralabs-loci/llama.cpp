@@ -2540,7 +2540,7 @@ private:
                         if (do_checkpoint) {
                             llama_pos last_checkpoint = 0;
                             if (!slot.prompt.checkpoints.empty()) {
-                                last_checkpoint = slot.prompt.checkpoints.back().pos_max;
+                                last_checkpoint = slot.prompt.checkpoints.back().n_tokens;
                             }
                             do_checkpoint = do_checkpoint && ((float) (slot.prompt.n_tokens() - batch.n_tokens - last_checkpoint) / batch.n_tokens) >= (float) params_base.checkpoint_every_nb;
                             if (do_checkpoint) {
