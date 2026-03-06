@@ -135,10 +135,10 @@ ggml_tensor * llm_build_qwen35::build_layer_attn(
     Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, nullptr, LLM_NORM_RMS, il);
     cb(Qcur, "Qcur_normed", il);
 
-    ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+    ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur, model.layers[il].wk_scale);
     cb(Kcur, "Kcur", il);
 
-    ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+    ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur, model.layers[il].wv_scale);
     cb(Vcur, "Vcur", il);
 
     // Apply K normalization
@@ -375,9 +375,9 @@ ggml_tensor * llm_build_qwen35::build_layer_ffn(ggml_tensor * cur, const int il)
     GGML_ASSERT(model.layers[il].ffn_gate_inp == nullptr);
 
     cur = build_ffn(cur,
-        model.layers[il].ffn_up, NULL, NULL,
-        model.layers[il].ffn_gate, NULL, NULL,
-        model.layers[il].ffn_down, NULL, NULL,
+        model.layers[il].ffn_up, NULL, model.layers[il].ffn_up_scale,
+        model.layers[il].ffn_gate, NULL, model.layers[il].ffn_gate_scale,
+        model.layers[il].ffn_down, NULL, model.layers[il].ffn_down_scale,
         NULL,
         LLM_FFN_SILU, LLM_FFN_PAR, il);
     cb(cur, "ffn_out", il);
