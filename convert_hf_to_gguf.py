@@ -11426,7 +11426,7 @@ class LightOnOCRVisionModel(LlavaVisionModel):
         yield from super().modify_tensors(data_torch, name, bid)
 
 
-@ModelBase.register("KimiVLForConditionalGeneration")
+@ModelBase.register("KimiVLForConditionalGeneration", "KimiK25ForConditionalGeneration")
 class KimiVLModel(MmprojModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -11443,9 +11443,17 @@ class KimiVLModel(MmprojModel):
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams_vision.get("layer_norm_eps", 1e-5))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        is_vision_tensor = "vision_tower" in name or "multi_modal_projector" in name
+        is_vision_tensor = "vision_tower" in name or "multi_modal_projector" in name or "mm_projector" in name
 
         if is_vision_tensor:
+            # update names:
+            # "mm_projector.proj.0" -> "mm_projector.proj.linear_1.",
+            # "mm_projector.proj.2" -> "mm_projector.proj.linear_2.",
+            if "proj.0." in name:
+                name = name.replace(".0.", ".linear_1.")
+            if "proj.2." in name:
+                name = name.replace(".2.", ".linear_2.")
+
             if "pos_emb.weight" in name:
                 data_torch = data_torch.view(data_torch.shape[0] * data_torch.shape[1], data_torch.shape[2])
 
