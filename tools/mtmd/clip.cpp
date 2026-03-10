@@ -792,6 +792,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_JANUS_PRO:
+        case PROJECTOR_TYPE_PHI4:
             {
                 builder = std::make_unique<clip_graph_siglip>(ctx, img);
             } break;
@@ -1143,6 +1144,13 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                         // ref: https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B/blob/main/processor_config.json
                         hparams.set_limit_image_tokens(64, 256);
+                    } break;
+                case PROJECTOR_TYPE_PHI4:
+                    {
+                        hparams.n_merge = 1;
+                        get_u32(KEY_IMAGE_MIN_PIXELS, hparams.image_min_pixels);
+                        get_u32(KEY_IMAGE_MAX_PIXELS, hparams.image_max_pixels);
+                        hparams.set_warmup_n_tokens(16*16);
                     } break;
                 case PROJECTOR_TYPE_PIXTRAL:
                 case PROJECTOR_TYPE_LIGHTONOCR:
@@ -1841,6 +1849,13 @@ struct clip_model_loader {
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 1, "weight"));
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"));
                 } break;
+            case PROJECTOR_TYPE_PHI4:
+                {
+                    model.mm_0_w = get_tensor(string_format(TN_LLAVA_PROJ, 0, "weight"));
+                    model.mm_0_b = get_tensor(string_format(TN_LLAVA_PROJ, 0, "bias"));
+                    model.mm_2_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));
+                    model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"));
+                } break;
             case PROJECTOR_TYPE_LFM2A:
                 {
                     for (int i : {0, 2, 3, 5, 6}) {
@@ -2420,6 +2435,43 @@ struct img_tool {
         }
 
         return {w_bar, h_bar};
+    }
+
+    // equivalent to transformers.models.siglip2.image_processing_siglip2.get_image_size_for_max_num_patches()
+    static clip_image_size calc_size_siglip2(const clip_image_size & inp_size, const int patch_size, const int max_num_patches, const double eps = 1e-5) {
+        GGML_ASSERT(patch_size > 0);
+        GGML_ASSERT(max_num_patches > 0);
+
+        const int image_width  = inp_size.width;
+        const int image_height = inp_size.height;
+
+        auto get_scaled_image_size = [patch_size](double scale, int size) {
+            double scaled_size = size * scale;
+            scaled_size = std::ceil(scaled_size / static_cast<double>(patch_size)) * patch_size;
+            scaled_size = std::max(static_cast<double>(patch_size), scaled_size);
+            return static_cast<int>(scaled_size);
+        };
+
+        double scale_min = eps / 10.0;
+        double scale_max = 100.0;
+
+        while ((scale_max - scale_min) >= eps) {
+            const double scale = (scale_min + scale_max) / 2.0;
+            const int target_height = get_scaled_image_size(scale, image_height);
+            const int target_width  = get_scaled_image_size(scale, image_width);
+            const int num_patches = (target_height / patch_size) * (target_width / patch_size);
+
+            if (num_patches <= max_num_patches) {
+                scale_min = scale;
+            } else {
+                scale_max = scale;
+            }
+        }
+
+        const int target_height = get_scaled_image_size(scale_min, image_height);
+        const int target_width  = get_scaled_image_size(scale_min, image_width);
+
+        return {target_width, target_height};
     }
 
     // draw src image into dst image at offset (offset_x, offset_y)
@@ -3020,6 +3072,24 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 // res_imgs->data[0] = *res;
                 res_imgs->entries.push_back(std::move(img_f32));
             } break;
+        case PROJECTOR_TYPE_PHI4:
+            {
+                const int patch_size = params.patch_size;
+                const int ps2 = patch_size * patch_size;
+                const int min_patches = params.image_min_pixels / ps2;
+                const int max_patches = params.image_max_pixels / ps2;
+                const int num_patches = std::clamp(
+                    std::max((original_size.height / patch_size) * (original_size.width / patch_size), 1),
+                    min_patches, max_patches);
+
+                clip_image_u8 resized;
+                const clip_image_size target_size = img_tool::calc_size_siglip2(
+                    original_size, patch_size, num_patches);
+                img_tool::resize(*img, resized, target_size, img_tool::RESIZE_ALGO_BILINEAR, false);
+                clip_image_f32_ptr img_f32(clip_image_f32_init());
+                normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
+                res_imgs->entries.push_back(std::move(img_f32));
+            } break;
         case PROJECTOR_TYPE_YOUTUVL:
             {
                 const int patch_size = params.patch_size;  // typically 16
@@ -3383,6 +3453,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_MLP:
         case PROJECTOR_TYPE_MLP_NORM:
         case PROJECTOR_TYPE_JANUS_PRO:
+        case PROJECTOR_TYPE_PHI4:
             {
                 // do nothing
             } break;
@@ -3884,6 +3955,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_MUSIC_FLAMINGO:
         case PROJECTOR_TYPE_JANUS_PRO:
+        case PROJECTOR_TYPE_PHI4:
         case PROJECTOR_TYPE_COGVLM:
             {
                 // do nothing
@@ -4013,6 +4085,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_LDPV2:
             return ctx->model.mm_model_peg_0_b->ne[0];
         case PROJECTOR_TYPE_MLP:
+        case PROJECTOR_TYPE_PHI4:
         case PROJECTOR_TYPE_PIXTRAL:
         case PROJECTOR_TYPE_LIGHTONOCR:
             return ctx->model.mm_2_w->ne[1];
