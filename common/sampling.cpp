@@ -250,6 +250,17 @@ struct common_sampler * common_sampler_init(const struct llama_model * model, st
         }
     }
 
+    // reasoning budget sampler — added first so it can force tokens before other samplers
+    if (params.reasoning_budget_tokens >= 0 && !params.reasoning_budget_forced.empty()) {
+        samplers.push_back(llama_sampler_init_reasoning_budget(
+            vocab,
+            params.reasoning_budget_start.data(),  params.reasoning_budget_start.size(),
+            params.reasoning_budget_end.data(),    params.reasoning_budget_end.size(),
+            params.reasoning_budget_forced.data(), params.reasoning_budget_forced.size(),
+            params.reasoning_budget_tokens,
+            params.reasoning_budget_arm_immediately));
+    }
+
     if (params.has_logit_bias()) {
         samplers.push_back(llama_sampler_init_logit_bias(llama_vocab_n_tokens(vocab), params.logit_bias.size(), params.logit_bias.data()));
     }
