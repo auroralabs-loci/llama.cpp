@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cinttypes>
+#include <exception>
 #include <memory>
 #include <filesystem>
 
@@ -1152,10 +1153,17 @@ private:
 
         // initialize samplers
         if (task.need_sampling()) {
-            slot.smpl.reset(common_sampler_init(model, task.params.sampling));
+            try {
+                slot.smpl.reset(common_sampler_init(model, task.params.sampling));
+            } catch (std::exception & e) {
+                std::string err_msg = std::string("Failed to initialize samplers: ") + e.what();
+                send_error(task, err_msg, ERROR_TYPE_INVALID_REQUEST);
+                return false;
+            }
 
             if (slot.smpl == nullptr) {
-                // for now, the only error that may happen here is invalid grammar
+                LOG_ERR("%s: error in parsing grammar. Grammar was:\n%s\n\nGeneration prompt:\n'%s'\n", __func__,
+                    common_grammar_value(task.params.sampling.grammar).c_str(), task.params.sampling.generation_prompt.c_str());
                 send_error(task, "Failed to parse grammar", ERROR_TYPE_INVALID_REQUEST);
                 return false;
             }
