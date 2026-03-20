@@ -2009,6 +2009,42 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
         GGML_ASSERT(got_runtime_error  && "throw path should produce std::runtime_error with parse position");
     }
 
+    // Functionary v3.2: trigger pattern in generation_prompt must not replay
+    // trigger text through the grammar during prefill.
+    // #18675 surfaced a latent bug in find_start_pos: >>>(?!all) matched >>>
+    // at end of generation_prompt, find() returned 0, grammar tried to parse
+    // >>> as a tool name, crashed.
+    {
+        auto tmpls = common_chat_templates_ptr(
+            common_chat_templates_init(nullptr, read_file("models/templates/meetkai-functionary-medium-v3.2.jinja")));
+
+        common_chat_templates_inputs inputs;
+        inputs.tools = { special_function_tool };
+        inputs.add_generation_prompt = true;
+        inputs.use_jinja = true;
+        inputs.messages = {{"user", "hi"}};
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+
+        // generation_prompt ends with >>> which is the trigger text
+        GGML_ASSERT(params.generation_prompt.size() >= 3);
+        GGML_ASSERT(params.generation_prompt.substr(params.generation_prompt.size() - 3) == ">>>");
+
+        // The trigger pattern must report grammar content starting AFTER >>>,
+        // not AT >>>. Otherwise prefill replays >>> through the grammar.
+        for (const auto & trigger : params.grammar_triggers) {
+            if (trigger.type == COMMON_GRAMMAR_TRIGGER_TYPE_PATTERN) {
+                llama_grammar_trigger_pattern pat { trigger.value, std::regex(trigger.value) };
+                size_t pos = pat.find(params.generation_prompt);
+                if (pos != std::string::npos) {
+                    GGML_ASSERT(pos >= params.generation_prompt.size() &&
+                           "trigger find() returns position inside generation_prompt -- "
+                           "would replay prompt text through grammar during prefill");
+                }
+            }
+        }
+    }
+
     // Kimi-K2-Thinking tests - custom parser
     // Unique feature: tool call ID embeds function name as functions.<name>:<counter>
     {
