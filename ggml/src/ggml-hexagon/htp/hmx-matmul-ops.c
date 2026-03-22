@@ -480,19 +480,19 @@ static void dequantize_x4x2_weight_chunk_to_fp16_tiles(
 
 // requires external HMX lock
 static void core_dot_chunk_fp16(__fp16 *output, const __fp16 *activation, const __fp16 *weight, const __fp16 *scales,
-                                int n_row_tiles, int n_col_tiles, int n_dot_tiles) {
+                                size_t n_row_tiles, size_t n_col_tiles, size_t n_dot_tiles) {
     hmx_set_output_scales(scales);
 
-    for (int r = 0; r < n_row_tiles; ++r) {
-        for (int c = 0; c < n_col_tiles; ++c) {
+    for (size_t r = 0; r < n_row_tiles; ++r) {
+        const __fp16 *row_tiles = activation + r * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
+
+        for (size_t c = 0; c < n_col_tiles; ++c) {
             Q6_mxclracc_hf();
-
-            const __fp16 *row_tiles = activation + r * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
             const __fp16 *col_tiles = weight + c * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
-
-            for (int k = 0; k < n_dot_tiles; ++k) {
-                int offset = k * HMX_FP16_TILE_N_ELMS;
-                hmx_load_tile_pair_fp16(row_tiles + offset, col_tiles + offset);
+            for (size_t k = 0; k < n_dot_tiles; ++k) {
+                hmx_load_tile_pair_fp16(row_tiles, col_tiles);
+                row_tiles += HMX_FP16_TILE_N_ELMS;
+                col_tiles += HMX_FP16_TILE_N_ELMS;
             }
 
             __fp16 *out_tile = output + (r * n_col_tiles + c) * HMX_FP16_TILE_N_ELMS;
@@ -559,7 +559,7 @@ static void transfer_output_chunk_threaded(struct htp_context *ctx, float *dst, 
     assert(n_cols % HMX_FP16_TILE_N_COLS == 0);
 
     size_t n_tot_chunks      = n_rows;
-    size_t n_chunks_per_task = 32;  // must be multiple of HMX_FP16_TILE_N_ROWS (32)
+    size_t n_chunks_per_task = HMX_FP16_TILE_N_ROWS;  // must be multiple of HMX_FP16_TILE_N_ROWS (32)
 
     output_transfer_task_state_t state;
     state.n_tasks           = (n_tot_chunks + n_chunks_per_task - 1) / n_chunks_per_task;
