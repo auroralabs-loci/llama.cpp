@@ -714,6 +714,7 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
 
             for (size_t mr = 0; mr < (size_t) params->m; mr += m_chunk_n_rows) {
                 const size_t n_rows = hex_smin((size_t) params->m - mr, m_chunk_n_rows);
+                const size_t n_row_tiles = hmx_ceil_div((int) n_rows, HMX_FP16_TILE_N_ROWS);
 
                 // Pre-load activations for all heads in the group (once per m_chunk).
                 // When the source is strided (permuted Q), use 2D DMA to gather
@@ -755,6 +756,7 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
 
                 for (size_t nc = 0; nc < (size_t) params->n; nc += n_chunk_n_cols) {
                     const size_t n_cols = hex_smin((size_t) params->n - nc, n_chunk_n_cols);
+                    const size_t n_col_tiles = hmx_ceil_div((int) n_cols, HMX_FP16_TILE_N_COLS);
 
                     TIMER_START(weight_load);
                     {
@@ -779,8 +781,6 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
                         TIMER_START(hmx_core);
                         {
                             const __fp16 *vtcm_act_g = vtcm_activation + (size_t) g * act_head_stride;
-                            const int n_row_tiles = hmx_ceil_div((int) n_rows, HMX_FP16_TILE_N_ROWS);
-                            const int n_col_tiles = hmx_ceil_div((int) n_cols, HMX_FP16_TILE_N_COLS);
                             core_dot_chunk_fp16(vtcm_output, vtcm_act_g, vtcm_weight, vtcm_scales,
                                                 n_row_tiles, n_col_tiles, params->k / 32);
                         }
@@ -883,7 +883,8 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
 
     for (size_t mr = 0; mr < m; mr += m_chunk_n_rows) {
         // transfer activation matrix chunk into VTCM
-        size_t n_rows = hex_smin(m - mr, m_chunk_n_rows);
+        const size_t n_rows = hex_smin(m - mr, m_chunk_n_rows);
+        const size_t n_row_tiles = hmx_ceil_div(n_rows, HMX_FP16_TILE_N_ROWS);
 
         TIMER_START(activation_load);
         {
@@ -921,7 +922,8 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
         }
 
         for (size_t nc = 0; nc < n; nc += n_chunk_n_cols) {
-            size_t n_cols = hex_smin(n - nc, n_chunk_n_cols);
+            const size_t n_cols = hex_smin(n - nc, n_chunk_n_cols);
+            const size_t n_col_tiles = hmx_ceil_div(n_cols, HMX_FP16_TILE_N_COLS);
 
             TIMER_START(weight_load);
             {
@@ -946,8 +948,6 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
 
             TIMER_START(hmx_core);
             {
-                const int n_row_tiles = hmx_ceil_div(n_rows, HMX_FP16_TILE_N_ROWS);
-                const int n_col_tiles = hmx_ceil_div(n_cols, HMX_FP16_TILE_N_COLS);
                 core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, vtcm_scales, n_row_tiles, n_col_tiles, k / 32);
             }
             TIMER_STOP(hmx_core);
@@ -1087,7 +1087,8 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
     if (!use_pipeline) {
         for (size_t mr = 0; mr < m; mr += m_chunk_n_rows) {
             // transfer activation matrix chunk into VTCM
-            size_t n_rows = hex_smin(m - mr, m_chunk_n_rows);
+            const size_t n_rows = hex_smin(m - mr, m_chunk_n_rows);
+            const size_t n_row_tiles = hmx_ceil_div(n_rows, HMX_FP16_TILE_N_ROWS);
 
             TIMER_START(activation_load);
             {
@@ -1108,7 +1109,8 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
             }
 
             for (size_t nc = 0; nc < n; nc += n_chunk_n_cols) {
-                size_t n_cols = hex_smin(n - nc, n_chunk_n_cols);
+                const size_t n_cols = hex_smin(n - nc, n_chunk_n_cols);
+                const size_t n_col_tiles = hmx_ceil_div(n_cols, HMX_FP16_TILE_N_COLS);
 
                 TIMER_START(weight_load);
                 {
@@ -1133,8 +1135,6 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
 
                 TIMER_START(hmx_core);
                 {
-                    const int n_row_tiles = hmx_ceil_div(n_rows, HMX_FP16_TILE_N_ROWS);
-                    const int n_col_tiles = hmx_ceil_div(n_cols, HMX_FP16_TILE_N_COLS);
                     core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, vtcm_scales, n_row_tiles, n_col_tiles, k / 32);
                 }
                 TIMER_STOP(hmx_core);
