@@ -1281,20 +1281,22 @@ void core_mma_chunk_fp16(__fp16 *c, const __fp16 *a, const __fp16 *b, const __fp
     hmx_set_output_scales(col_scales);
 
     for (size_t i = 0; i < n_row_tiles; ++i) {
+        const __fp16 *row_base = a + i * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
+        __fp16 *res_base = c + i * n_col_tiles * HMX_FP16_TILE_N_ELMS;
         for (size_t j = 0; j < n_col_tiles; ++j) {
             Q6_mxclracc_hf();
 
-            const __fp16 *row_tiles = a + i * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
             const __fp16 *col_tiles = b + j * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
-
-            __fp16 *accum_tile = c + (i * n_col_tiles + j) * HMX_FP16_TILE_N_ELMS;
+            const __fp16 *row_tiles = row_base;
+            __fp16 *accum_tile = res_base + j * HMX_FP16_TILE_N_ELMS;
             if (!zero_init) {
                 hmx_load_tile_pair_fp16(accum_tile, eye_tile);
             }
 
             for (size_t k = 0; k < n_dot_tiles; ++k) {
-                size_t offset = k * HMX_FP16_TILE_N_ELMS;
-                hmx_load_tile_pair_fp16(row_tiles + offset, col_tiles + offset);
+                hmx_load_tile_pair_fp16(row_tiles, col_tiles);
+                row_tiles += HMX_FP16_TILE_N_ELMS;
+                col_tiles += HMX_FP16_TILE_N_ELMS;
             }
 
             hmx_consume_accumulator_fp16(accum_tile);
