@@ -486,10 +486,11 @@ static void core_dot_chunk_fp16(__fp16 *       output,
                                 size_t         n_col_tiles,
                                 size_t         n_dot_tiles) {
     for (size_t r = 0; r < n_row_tiles; ++r) {
-        const __fp16 * row_tiles = activation + r * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
+        const __fp16 * row_base = activation + r * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
 
         for (size_t c = 0; c < n_col_tiles; ++c) {
             Q6_mxclracc_hf();
+            const __fp16 * row_tiles = row_base;
             const __fp16 * col_tiles = weight + c * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
             for (size_t k = 0; k < n_dot_tiles; ++k) {
                 hmx_load_tile_pair_fp16(row_tiles, col_tiles);
