@@ -456,9 +456,9 @@ static void dequantize_x4x2_weight_chunk_to_fp16_tiles(
     assert(n_cols  % HMX_FP16_TILE_N_COLS == 0);
     assert(k_block % HMX_FP16_TILE_N_COLS == 0);
 
-    int n_col_tiles = n_cols / HMX_FP16_TILE_N_COLS;
-    int n_k_tiles   = k_block / HMX_FP16_TILE_N_COLS;
-    int n_tot_tiles = n_col_tiles * n_k_tiles;
+    size_t n_col_tiles = n_cols / HMX_FP16_TILE_N_COLS;
+    size_t n_k_tiles   = k_block / HMX_FP16_TILE_N_COLS;
+    size_t n_tot_tiles = n_col_tiles * n_k_tiles;
 
     size_t n_tiles_per_task = hmx_ceil_div(n_tot_tiles, ctx->n_threads);
 
