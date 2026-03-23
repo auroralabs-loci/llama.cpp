@@ -1276,12 +1276,12 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
 
 // C += AB
 void core_mma_chunk_fp16(__fp16 *c, const __fp16 *a, const __fp16 *b, const __fp16 *col_scales, const __fp16 *eye_tile,
-                         int n_row_tiles, int n_col_tiles, int n_dot_tiles, bool zero_init) {
+                         size_t n_row_tiles, size_t n_col_tiles, size_t n_dot_tiles, bool zero_init) {
 
     hmx_set_output_scales(col_scales);
 
-    for (int i = 0; i < n_row_tiles; ++i) {
-        for (int j = 0; j < n_col_tiles; ++j) {
+    for (size_t i = 0; i < n_row_tiles; ++i) {
+        for (size_t j = 0; j < n_col_tiles; ++j) {
             Q6_mxclracc_hf();
 
             const __fp16 *row_tiles = a + i * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
@@ -1292,8 +1292,8 @@ void core_mma_chunk_fp16(__fp16 *c, const __fp16 *a, const __fp16 *b, const __fp
                 hmx_load_tile_pair_fp16(accum_tile, eye_tile);
             }
 
-            for (int k = 0; k < n_dot_tiles; ++k) {
-                int offset = k * HMX_FP16_TILE_N_ELMS;
+            for (size_t k = 0; k < n_dot_tiles; ++k) {
+                size_t offset = k * HMX_FP16_TILE_N_ELMS;
                 hmx_load_tile_pair_fp16(row_tiles + offset, col_tiles + offset);
             }
 
@@ -1372,7 +1372,7 @@ void transfer_activation_chunk_threaded(struct htp_context *ctx, __fp16 *dst, co
 }
 
 int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict out, const float *restrict x, const uint8_t *restrict w, int m,
-                                       int k, int n, int weight_type) {
+                                       int k, int n, const int weight_type) {
     // Runtime check -- k >= 16384 exceeds 2D DMA limit
     if (k >= 16384) {
         FARF(HIGH, "%s: k=%d exceeds 2D DMA limit", __func__, k);
@@ -1448,7 +1448,7 @@ int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict 
             const int n_col_tiles = hmx_ceil_div(n_blk_sz, HMX_FP16_TILE_N_COLS);
 
             for (size_t kk = 0; kk < k; kk += K_BLOCK_SIZE) {
-                size_t k_blk_sz = hex_smin(k - kk, K_BLOCK_SIZE);
+                const size_t k_blk_sz = hex_smin(k - kk, K_BLOCK_SIZE);
 
                 TIMER_START(fetch);
                 // fetch activation block into VTCM
@@ -1464,6 +1464,7 @@ int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict 
                 }
 
                 // fetch weight block into VTCM (x4x2 sub-block: quants + scales)
+                const size_t sub_row_stride = get_x4x2_row_stride(weight_type, k_blk_sz);
                 {
                     qweight_fetch_task_state_t s;
 
@@ -1471,7 +1472,6 @@ int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict 
                     const int blk_start = kk / QK_Q4_0x4x2;
                     const int nb_sub = (k_blk_sz + QK_Q4_0x4x2 - 1) / QK_Q4_0x4x2;
                     const int full_qrow = is_q4 ? (k / 2) : k;
-                    const size_t sub_row_stride = get_x4x2_row_stride(weight_type, k_blk_sz);
 
                     s.dst         = vtcm_scratch0;
                     s.src         = w + nc * row_stride;
@@ -1507,7 +1507,6 @@ int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict 
                     dma_queue_pop(ctx->dma[0]);
                     // vtcm_scratch0 is used to store the qweight chunk
                     // worker_pool_run_func already returned, so fetch is done
-                    const size_t sub_row_stride = get_x4x2_row_stride(weight_type, k_blk_sz);
                     dequantize_x4x2_weight_chunk_to_fp16_tiles(ctx, vtcm_weight, vtcm_scratch0,
                                                                 n_blk_sz, k_blk_sz, sub_row_stride, weight_type);
                 }
