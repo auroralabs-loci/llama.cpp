@@ -397,7 +397,7 @@ static __global__ void mul_mat_vec_q(
 
 // Dedicated MoE multi-token kernel.
 // Grid: (ceil(nrows_x / c_rows_per_block), nchannels_dst)
-// Block: (warp_size, ncols_dst) — each warp handles one token independently.
+// Block: (warp_size, ncols_dst) - each warp handles one token independently.
 // No shared memory reduction needed since each warp works alone.
 template <ggml_type type, int c_rows_per_block>
 __launch_bounds__(MMVQ_MMID_MAX_BATCH_SIZE*ggml_cuda_get_physical_warp_size(), 1)
@@ -446,7 +446,7 @@ static __global__ void mul_mat_vec_q_moe(
         }
     }
 
-    // Warp-level reduction only — no shared memory needed
+    // Warp-level reduction only - no shared memory needed
 #pragma unroll
     for (int i = 0; i < c_rows_per_block; ++i) {
         tmp[i] = warp_reduce_sum<warp_size>(tmp[i]);
@@ -545,7 +545,7 @@ static void mul_mat_vec_q_switch_ncols_dst(
     const bool has_ids = ids != nullptr;
 
     if (has_ids && ncols_dst > 1) {
-        // Multi-token MUL_MAT_ID path — dedicated MoE kernel
+        // Multi-token MUL_MAT_ID path - dedicated MoE kernel
         mul_mat_vec_q_moe_launch<type>(
             vx, vy, ids, dst, ncols_x, nchannels_y_fd, nrows_x,
             stride_row_x, stride_col_y, stride_col_dst,
