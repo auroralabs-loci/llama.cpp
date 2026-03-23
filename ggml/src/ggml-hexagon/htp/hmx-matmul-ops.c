@@ -481,8 +481,6 @@ static void dequantize_x4x2_weight_chunk_to_fp16_tiles(
 // requires external HMX lock
 static void core_dot_chunk_fp16(__fp16 *output, const __fp16 *activation, const __fp16 *weight, const __fp16 *scales,
                                 size_t n_row_tiles, size_t n_col_tiles, size_t n_dot_tiles) {
-    hmx_set_output_scales(scales);
-
     for (size_t r = 0; r < n_row_tiles; ++r) {
         const __fp16 *row_tiles = activation + r * n_dot_tiles * HMX_FP16_TILE_N_ELMS;
 
@@ -753,6 +751,7 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
                 }
 
                 HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
+                hmx_set_output_scales(vtcm_scales);
 
                 for (size_t nc = 0; nc < (size_t) params->n; nc += n_chunk_n_cols) {
                     const size_t n_cols = hex_smin((size_t) params->n - nc, n_chunk_n_cols);
@@ -880,6 +879,7 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
     TIMER_START(total);
 
     HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
+    hmx_set_output_scales(vtcm_scales);
 
     for (size_t mr = 0; mr < m; mr += m_chunk_n_rows) {
         // transfer activation matrix chunk into VTCM
@@ -1083,6 +1083,7 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
          (size_t)(vtcm_ptr - (uint8_t *)ctx->vtcm_base), vtcm_budget);
 
     HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
+    hmx_set_output_scales(vtcm_scales);
 
     if (!use_pipeline) {
         for (size_t mr = 0; mr < m; mr += m_chunk_n_rows) {
