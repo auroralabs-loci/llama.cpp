@@ -365,14 +365,14 @@ static void llama_params_fit_impl(
             case LAYER_FRACTION_ATTN: {
                 static std::array<std::string, n_strings> patterns;
                 if (patterns[il].empty()) {
-                    patterns[il] = "blk\\." + std::to_string(il) + "\\.ffn_(up|gate|down).*";
+                    patterns[il] = "blk\\." + std::to_string(il) + "\\.ffn_(gate|up|gate_up|down).*";
                 }
                 return patterns[il].c_str();
             }
             case LAYER_FRACTION_UP: {
                 static std::array<std::string, n_strings> patterns;
                 if (patterns[il].empty()) {
-                    patterns[il] = "blk\\." + std::to_string(il) + "\\.ffn_(gate|down).*";
+                    patterns[il] = "blk\\." + std::to_string(il) + "\\.ffn_(gate|gate_up|down).*";
                 }
                 return patterns[il].c_str();
             }
