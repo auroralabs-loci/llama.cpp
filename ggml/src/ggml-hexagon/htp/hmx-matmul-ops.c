@@ -506,29 +506,29 @@ static void core_dot_chunk_fp16(__fp16 *       output,
 
 static void transfer_output_chunk_fp16_to_fp32(float * restrict dst,
                                                const __fp16 * restrict vtcm_src,
-                                               int n_rows,
-                                               int n_cols,
-                                               int n) {
+                                               size_t n_rows,
+                                               size_t n_cols,
+                                               size_t n) {
     assert(n_cols % HMX_FP16_TILE_N_COLS == 0);
-    const int n_col_tiles = n_cols / HMX_FP16_TILE_N_COLS;
+    const size_t n_col_tiles = n_cols / HMX_FP16_TILE_N_COLS;
 
     const HVX_Vector one = hvx_vec_splat_f16(1.0);
 
-    for (int r = 0; r < n_rows; r += 2) {
-        int r0 = r / HMX_FP16_TILE_N_ROWS;
-        int r1 = r % HMX_FP16_TILE_N_ROWS;
+    for (size_t r = 0; r < n_rows; r += 2) {
+        const size_t r0 = r / HMX_FP16_TILE_N_ROWS;
+        const size_t r1 = (r % HMX_FP16_TILE_N_ROWS) / 2;  // index of the row pair within the tile
+        const __fp16 *row_base = vtcm_src + r0 * n_col_tiles * HMX_FP16_TILE_N_ELMS;
+        float *output_row_base = dst + r * n;  // global memory row base for row r (and r+1)
 
         #pragma unroll(4)
-        for (int c = 0; c < n_cols; c += HMX_FP16_TILE_N_COLS) {
-            int c0 = c / HMX_FP16_TILE_N_COLS;
-
-            const __fp16 *tile = vtcm_src + (r0 * n_col_tiles + c0) * HMX_FP16_TILE_N_ELMS;
-
-            HVX_Vector v = ((const HVX_Vector *) tile)[r1 / 2];
+        for (size_t c = 0; c < n_cols; c += HMX_FP16_TILE_N_COLS) {
+            const size_t c0 = c / HMX_FP16_TILE_N_COLS;
+            const __fp16 *tile = row_base + c0 * HMX_FP16_TILE_N_ELMS;
+            HVX_Vector v = ((const HVX_Vector *) tile)[r1];
             HVX_VectorPair vp = Q6_Wqf32_vmpy_VhfVhf(v, one);
 
-            volatile HVX_Vector *pv_out0 = (volatile HVX_Vector *) (dst + (r * n + c + 0));
-            volatile HVX_Vector *pv_out1 = (volatile HVX_Vector *) (dst + (r * n + c + n));  // next row in global memory
+            volatile HVX_Vector *pv_out0 = (volatile HVX_Vector *) (output_row_base + c + 0);
+            volatile HVX_Vector *pv_out1 = (volatile HVX_Vector *) (output_row_base + c + n);  // next row in global memory
 
             *pv_out0 = Q6_Vsf_equals_Vqf32(Q6_V_lo_W(vp));
             if (r + 1 < n_rows) {
