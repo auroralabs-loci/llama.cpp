@@ -4079,7 +4079,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
 
 #if defined(GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
             if (device->integer_dot_product) {
-                const uint32_t subgroup_size_int = (device->vendor_id == VK_VENDOR_ID_INTEL && device->subgroup_size_control) ? device->subgroup_min_size : device->subgroup_size;
+                const uint32_t subgroup_size_int = (device->vendor_id == VK_VENDOR_ID_INTEL && device->architecture != INTEL_XE2 && device->subgroup_size_control) ? device->subgroup_min_size : device->subgroup_size;
                 const uint32_t wg_size_subgroup_int = (w == DMMV_WG_SIZE_SUBGROUP) ? subgroup_size_int : (subgroup_size_int * 4);
 
 		// For K-quants, the shmem variant needs a BLOCK_SIZE of at least 16
@@ -4168,7 +4168,7 @@ static void ggml_vk_load_shaders(vk_device& device) {
 
 #if defined(GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
         if (device->integer_dot_product) {
-            const uint32_t subgroup_size_int = (device->vendor_id == VK_VENDOR_ID_INTEL && device->subgroup_size_control) ? device->subgroup_min_size : device->subgroup_size;
+            const uint32_t subgroup_size_int = (device->vendor_id == VK_VENDOR_ID_INTEL && device->architecture != INTEL_XE2 && device->subgroup_size_control) ? device->subgroup_min_size : device->subgroup_size;
             const uint32_t wg_size_subgroup_int = (w == DMMV_WG_SIZE_SUBGROUP) ? subgroup_size_int : (subgroup_size_int * 4);
 
             // For K-quants, the shmem variant needs a BLOCK_SIZE of at least 16
@@ -5100,12 +5100,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
 
         device->integer_dot_product = device->integer_dot_product && shader_integer_dot_product_props.integerDotProduct4x8BitPackedSignedAccelerated;
 
+        // Shared memory staging for MMVQ: default on for Intel Xe2, overridable via env var
         {
             const char* env = getenv("GGML_VK_MMVQ_SHMEM_STAGING");
             if (env != nullptr) {
                 device->mmvq_shmem_staging = (std::string(env) != "0");
             } else {
-                device->mmvq_shmem_staging = false;
+                device->mmvq_shmem_staging = (device->vendor_id == VK_VENDOR_ID_INTEL && device->architecture == INTEL_XE2);
             }
         }
 
