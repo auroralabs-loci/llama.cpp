@@ -511,14 +511,14 @@ static void transfer_output_chunk_fp16_to_fp32(float * restrict dst,
                                                size_t n_cols,
                                                size_t n) {
     assert(n_cols % HMX_FP16_TILE_N_COLS == 0);
-    const size_t n_col_tiles = n_cols / HMX_FP16_TILE_N_COLS;
+    const size_t tile_row_stride = (n_cols / HMX_FP16_TILE_N_COLS) * HMX_FP16_TILE_N_ELMS;
 
     const HVX_Vector one = hvx_vec_splat_f16(1.0);
 
     for (size_t r = 0; r < n_rows; r += 2) {
         const size_t r0 = r / HMX_FP16_TILE_N_ROWS;
         const size_t r1 = (r % HMX_FP16_TILE_N_ROWS) / 2;  // index of the row pair within the tile
-        const __fp16 *row_base = vtcm_src + r0 * n_col_tiles * HMX_FP16_TILE_N_ELMS;
+        const __fp16 *row_base = vtcm_src + r0 * tile_row_stride;
         float *output_row_base = dst + r * n;  // global memory row base for row r (and r+1)
 
         #pragma unroll(4)
