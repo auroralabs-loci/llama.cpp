@@ -60,12 +60,20 @@ struct block_q4_0_packed16
     uint16_t qs[16/2];
 };
 
+// block_q4_0 byte layout: d(f16:2) qs(u8[16]:16) = 18 bytes
+#define BLOCK_Q4_0_SIZE      18u
+#define BLOCK_Q4_0_OFFSET_D  0u
+#define BLOCK_Q4_0_OFFSET_QS 2u
+
 #if defined(DATA_A_Q4_0)
 #define QUANT_K QUANT_K_Q4_0
 #define QUANT_R QUANT_R_Q4_0
 #define QUANT_AUXF 1
 #define A_TYPE block_q4_0
 #define A_TYPE_PACKED16 block_q4_0_packed16
+#define A_BLOCK_SIZE BLOCK_Q4_0_SIZE
+#define A_BLOCK_OFFSET_D  BLOCK_Q4_0_OFFSET_D
+#define A_BLOCK_OFFSET_QS BLOCK_Q4_0_OFFSET_QS
 #define DATA_A_QUANT_LEGACY
 #endif
 
@@ -92,6 +100,11 @@ struct block_q4_1_packed32
     uint32_t qs[16/4];
 };
 
+// block_q4_1 byte layout: d(f16:2) m(f16:2) qs(u8[16]:16) = 20 bytes
+#define BLOCK_Q4_1_SIZE      20u
+#define BLOCK_Q4_1_OFFSET_DM 0u
+#define BLOCK_Q4_1_OFFSET_QS 4u
+
 #if defined(DATA_A_Q4_1)
 #define QUANT_K QUANT_K_Q4_1
 #define QUANT_R QUANT_R_Q4_1
@@ -99,6 +112,9 @@ struct block_q4_1_packed32
 #define A_TYPE block_q4_1
 #define A_TYPE_PACKED16 block_q4_1_packed16
 #define A_TYPE_PACKED32 block_q4_1_packed32
+#define A_BLOCK_SIZE BLOCK_Q4_1_SIZE
+#define A_BLOCK_OFFSET_DM BLOCK_Q4_1_OFFSET_DM
+#define A_BLOCK_OFFSET_QS BLOCK_Q4_1_OFFSET_QS
 #define DATA_A_QUANT_LEGACY
 #endif
 
@@ -119,12 +135,22 @@ struct block_q5_0_packed16
     uint16_t qs[16/2];
 };
 
+// block_q5_0 byte layout: d(f16:2) qh(u16[2]:4) qs(u8[16]:16) = 22 bytes
+#define BLOCK_Q5_0_SIZE      22u
+#define BLOCK_Q5_0_OFFSET_D  0u
+#define BLOCK_Q5_0_OFFSET_QH 2u
+#define BLOCK_Q5_0_OFFSET_QS 6u
+
 #if defined(DATA_A_Q5_0)
 #define QUANT_K QUANT_K_Q5_0
 #define QUANT_R QUANT_R_Q5_0
 #define QUANT_AUXF 1
 #define A_TYPE block_q5_0
 #define A_TYPE_PACKED16 block_q5_0_packed16
+#define A_BLOCK_SIZE BLOCK_Q5_0_SIZE
+#define A_BLOCK_OFFSET_D  BLOCK_Q5_0_OFFSET_D
+#define A_BLOCK_OFFSET_QH BLOCK_Q5_0_OFFSET_QH
+#define A_BLOCK_OFFSET_QS BLOCK_Q5_0_OFFSET_QS
 #define DATA_A_QUANT_LEGACY
 #endif
 
@@ -154,6 +180,12 @@ struct block_q5_1_packed32
     uint32_t qs[16/4];
 };
 
+// block_q5_1 byte layout: d(f16:2) m(f16:2) qh(u32:4) qs(u8[16]:16) = 24 bytes
+#define BLOCK_Q5_1_SIZE      24u
+#define BLOCK_Q5_1_OFFSET_DM 0u
+#define BLOCK_Q5_1_OFFSET_QH 4u
+#define BLOCK_Q5_1_OFFSET_QS 8u
+
 #if defined(DATA_A_Q5_1)
 #define QUANT_K QUANT_K_Q5_1
 #define QUANT_R QUANT_R_Q5_1
@@ -161,6 +193,10 @@ struct block_q5_1_packed32
 #define A_TYPE block_q5_1
 #define A_TYPE_PACKED16 block_q5_1_packed16
 #define A_TYPE_PACKED32 block_q5_1_packed32
+#define A_BLOCK_SIZE BLOCK_Q5_1_SIZE
+#define A_BLOCK_OFFSET_DM BLOCK_Q5_1_OFFSET_DM
+#define A_BLOCK_OFFSET_QH BLOCK_Q5_1_OFFSET_QH
+#define A_BLOCK_OFFSET_QS BLOCK_Q5_1_OFFSET_QS
 #define DATA_A_QUANT_LEGACY
 #endif
 
@@ -179,12 +215,20 @@ struct block_q8_0_packed16
     int16_t qs[32/2];
 };
 
+// block_q8_0 byte layout: d(f16:2) qs(i8[32]:32) = 34 bytes
+#define BLOCK_Q8_0_SIZE      34u
+#define BLOCK_Q8_0_OFFSET_D  0u
+#define BLOCK_Q8_0_OFFSET_QS 2u
+
 #if defined(DATA_A_Q8_0)
 #define QUANT_K QUANT_K_Q8_0
 #define QUANT_R QUANT_R_Q8_0
 #define QUANT_AUXF 1
 #define A_TYPE block_q8_0
 #define A_TYPE_PACKED16 block_q8_0_packed16
+#define A_BLOCK_SIZE BLOCK_Q8_0_SIZE
+#define A_BLOCK_OFFSET_D  BLOCK_Q8_0_OFFSET_D
+#define A_BLOCK_OFFSET_QS BLOCK_Q8_0_OFFSET_QS
 #define DATA_A_QUANT_LEGACY
 #endif
 
@@ -246,12 +290,22 @@ struct block_q2_K_packed32
     f16vec2 dm;
 };
 
+// block_q2_K byte layout: scales(u8[16]:16) qs(u8[64]:64) dm(f16vec2:4) = 84 bytes
+#define BLOCK_Q2_K_SIZE          84u
+#define BLOCK_Q2_K_OFFSET_SCALES 0u
+#define BLOCK_Q2_K_OFFSET_QS     16u
+#define BLOCK_Q2_K_OFFSET_DM     80u
+
 #if defined(DATA_A_Q2_K)
 #define QUANT_K QUANT_K_Q2_K
 #define QUANT_R 1
 #define A_TYPE block_q2_K
 #define A_TYPE_PACKED16 block_q2_K_packed16
 #define A_TYPE_PACKED32 block_q2_K_packed32
+#define A_BLOCK_SIZE    BLOCK_Q2_K_SIZE
+#define A_BLOCK_OFFSET_SCALES   BLOCK_Q2_K_OFFSET_SCALES
+#define A_BLOCK_OFFSET_QS       BLOCK_Q2_K_OFFSET_QS
+#define A_BLOCK_OFFSET_DM       BLOCK_Q2_K_OFFSET_DM
 #define SCALES_PER_32 2
 #define DATA_A_QUANT_K
 #endif
@@ -274,11 +328,23 @@ struct block_q3_K_packed16
     float16_t d;
 };
 
+// block_q3_K byte layout: hmask(u8[32]:32) qs(u8[64]:64) scales(u8[12]:12) d(f16:2) = 110 bytes
+#define BLOCK_Q3_K_SIZE          110u
+#define BLOCK_Q3_K_OFFSET_HMASK  0u
+#define BLOCK_Q3_K_OFFSET_QS     32u
+#define BLOCK_Q3_K_OFFSET_SCALES 96u
+#define BLOCK_Q3_K_OFFSET_D      108u
+
 #if defined(DATA_A_Q3_K)
 #define QUANT_K QUANT_K_Q3_K
 #define QUANT_R 1
 #define A_TYPE block_q3_K
 #define A_TYPE_PACKED16 block_q3_K_packed16
+#define A_BLOCK_SIZE    BLOCK_Q3_K_SIZE
+#define A_BLOCK_OFFSET_HMASK    BLOCK_Q3_K_OFFSET_HMASK
+#define A_BLOCK_OFFSET_QS       BLOCK_Q3_K_OFFSET_QS
+#define A_BLOCK_OFFSET_SCALES   BLOCK_Q3_K_OFFSET_SCALES
+#define A_BLOCK_OFFSET_D        BLOCK_Q3_K_OFFSET_D
 #define DATA_A_QUANT_K
 #endif
 
@@ -310,12 +376,22 @@ struct block_q4_K_packed128
     uvec4 q4k[9];
 };
 
+// block_q4_K byte layout: dm(f16vec2:4) scales(u8[12]:12) qs(u8[128]:128) = 144 bytes
+#define BLOCK_Q4_K_SIZE          144u
+#define BLOCK_Q4_K_OFFSET_DM     0u
+#define BLOCK_Q4_K_OFFSET_SCALES 4u
+#define BLOCK_Q4_K_OFFSET_QS     16u
+
 #if defined(DATA_A_Q4_K)
 #define QUANT_K QUANT_K_Q4_K
 #define QUANT_R 1
 #define A_TYPE block_q4_K
 #define A_TYPE_PACKED16 block_q4_K_packed16
 #define A_TYPE_PACKED32 block_q4_K_packed32
+#define A_BLOCK_SIZE    BLOCK_Q4_K_SIZE
+#define A_BLOCK_OFFSET_DM       BLOCK_Q4_K_OFFSET_DM
+#define A_BLOCK_OFFSET_SCALES   BLOCK_Q4_K_OFFSET_SCALES
+#define A_BLOCK_OFFSET_QS       BLOCK_Q4_K_OFFSET_QS
 #define DATA_A_QUANT_K
 #endif
 
@@ -350,12 +426,24 @@ struct block_q5_K_packed128
     uvec4 q5k[11];
 };
 
+// block_q5_K byte layout: dm(f16vec2:4) scales(u8[12]:12) qh(u8[32]:32) qs(u8[128]:128) = 176 bytes
+#define BLOCK_Q5_K_SIZE          176u
+#define BLOCK_Q5_K_OFFSET_DM     0u
+#define BLOCK_Q5_K_OFFSET_SCALES 4u
+#define BLOCK_Q5_K_OFFSET_QH     16u
+#define BLOCK_Q5_K_OFFSET_QS     48u
+
 #if defined(DATA_A_Q5_K)
 #define QUANT_K QUANT_K_Q5_K
 #define QUANT_R 1
 #define A_TYPE block_q5_K
 #define A_TYPE_PACKED16 block_q5_K_packed16
 #define A_TYPE_PACKED32 block_q5_K_packed32
+#define A_BLOCK_SIZE    BLOCK_Q5_K_SIZE
+#define A_BLOCK_OFFSET_DM       BLOCK_Q5_K_OFFSET_DM
+#define A_BLOCK_OFFSET_SCALES   BLOCK_Q5_K_OFFSET_SCALES
+#define A_BLOCK_OFFSET_QH       BLOCK_Q5_K_OFFSET_QH
+#define A_BLOCK_OFFSET_QS       BLOCK_Q5_K_OFFSET_QS
 #define DATA_A_QUANT_K
 #endif
 
@@ -377,11 +465,23 @@ struct block_q6_K_packed16
     float16_t d;
 };
 
+// block_q6_K byte layout: ql(u8[128]:128) qh(u8[64]:64) scales(i8[16]:16) d(f16:2) = 210 bytes
+#define BLOCK_Q6_K_SIZE          210u
+#define BLOCK_Q6_K_OFFSET_QL     0u
+#define BLOCK_Q6_K_OFFSET_QH     128u
+#define BLOCK_Q6_K_OFFSET_SCALES 192u
+#define BLOCK_Q6_K_OFFSET_D      208u
+
 #if defined(DATA_A_Q6_K)
 #define QUANT_K QUANT_K_Q6_K
 #define QUANT_R 1
 #define A_TYPE block_q6_K
 #define A_TYPE_PACKED16 block_q6_K_packed16
+#define A_BLOCK_SIZE    BLOCK_Q6_K_SIZE
+#define A_BLOCK_OFFSET_QL       BLOCK_Q6_K_OFFSET_QL
+#define A_BLOCK_OFFSET_QH       BLOCK_Q6_K_OFFSET_QH
+#define A_BLOCK_OFFSET_SCALES   BLOCK_Q6_K_OFFSET_SCALES
+#define A_BLOCK_OFFSET_D        BLOCK_Q6_K_OFFSET_D
 #define DATA_A_QUANT_K
 #endif
 
@@ -429,11 +529,27 @@ struct block_iq1_m_packed64 {
     uint64_t scales;
 };
 
+// block_iq1_s byte layout: d(f16:2) qs(u8[32]:32) qh(u16[8]:16) = 50 bytes
+#define BLOCK_IQ1_S_SIZE      50u
+#define BLOCK_IQ1_S_OFFSET_D  0u
+#define BLOCK_IQ1_S_OFFSET_QS 2u
+#define BLOCK_IQ1_S_OFFSET_QH 34u
+
+// block_iq1_m byte layout: qs(u8[32]:32) qh(u8[16]:16) scales(u16[4]:8) = 56 bytes
+#define BLOCK_IQ1_M_SIZE          56u
+#define BLOCK_IQ1_M_OFFSET_QS     0u
+#define BLOCK_IQ1_M_OFFSET_QH     32u
+#define BLOCK_IQ1_M_OFFSET_SCALES 48u
+
 #if defined(DATA_A_IQ1_S)
 #define QUANT_K QUANT_K_IQ1_S
 #define QUANT_R QUANT_R_IQ1_S
 #define A_TYPE block_iq1_s
 #define A_TYPE_PACKED16 block_iq1_s_packed16
+#define A_BLOCK_SIZE BLOCK_IQ1_S_SIZE
+#define A_BLOCK_OFFSET_D  BLOCK_IQ1_S_OFFSET_D
+#define A_BLOCK_OFFSET_QS BLOCK_IQ1_S_OFFSET_QS
+#define A_BLOCK_OFFSET_QH BLOCK_IQ1_S_OFFSET_QH
 #endif
 
 #if defined(DATA_A_IQ1_M)
@@ -442,6 +558,10 @@ struct block_iq1_m_packed64 {
 #define A_TYPE block_iq1_m
 #define A_TYPE_PACKED16 block_iq1_m_packed16
 #define A_TYPE_PACKED32 block_iq1_m_packed32
+#define A_BLOCK_SIZE    BLOCK_IQ1_M_SIZE
+#define A_BLOCK_OFFSET_QS       BLOCK_IQ1_M_OFFSET_QS
+#define A_BLOCK_OFFSET_QH       BLOCK_IQ1_M_OFFSET_QH
+#define A_BLOCK_OFFSET_SCALES   BLOCK_IQ1_M_OFFSET_SCALES
 #endif
 
 #if defined(DATA_A_IQ1_S) || defined(DATA_A_IQ1_M)
@@ -1689,11 +1809,19 @@ struct block_mxfp4
     uint8_t qs[QUANT_K_MXFP4/2];
 };
 
+// block_mxfp4 byte layout: e(u8:1) qs(u8[16]:16) = 17 bytes
+#define BLOCK_MXFP4_SIZE      17u
+#define BLOCK_MXFP4_OFFSET_E  0u
+#define BLOCK_MXFP4_OFFSET_QS 1u
+
 #if defined(DATA_A_MXFP4)
 #define QUANT_K QUANT_K_MXFP4
 #define QUANT_R QUANT_R_MXFP4
 #define QUANT_AUXF 1
 #define A_TYPE block_mxfp4
+#define A_BLOCK_SIZE BLOCK_MXFP4_SIZE
+#define A_BLOCK_OFFSET_E  BLOCK_MXFP4_OFFSET_E
+#define A_BLOCK_OFFSET_QS BLOCK_MXFP4_OFFSET_QS
 #endif
 
 #if defined(DATA_A_IQ4_NL) || defined(DATA_A_IQ4_XS)
