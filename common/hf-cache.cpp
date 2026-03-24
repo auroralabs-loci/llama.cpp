@@ -1,0 +1,492 @@
+#include "hf-cache.h"
+
+#include "common.h"
+#include "log.h"
+#include "http.h"
+
+#define JSON_ASSERT GGML_ASSERT
+#include <nlohmann/json.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <atomic>
+#include <regex> // migration only
+#include <string>
+#include <string_view>
+#include <stdexcept>
+
+namespace nl = nlohmann;
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define HOME_DIR "USERPROFILE"
+#include <windows.h>
+#else
+#define HOME_DIR "HOME"
+#endif
+
+namespace hf_cache {
+
+namespace fs = std::filesystem;
+
+static fs::path get_cache_directory() {
+    static const fs::path cache = []() {
+        struct {
+            const char * var;
+            fs::path path;
+        } entries[] = {
+            {"HF_HUB_CACHE",          fs::path()},
+            {"HUGGINGFACE_HUB_CACHE", fs::path()},
+            {"HF_HOME",               fs::path("hub")},
+            {"XDG_CACHE_HOME",        fs::path("huggingface") / "hub"},
+            {HOME_DIR,                fs::path(".cache") / "huggingface" / "hub"}
+        };
+        for (const auto & entry : entries) {
+            if (auto * p = std::getenv(entry.var); p && *p) {
+                fs::path base(p);
+                return entry.path.empty() ? base : base / entry.path;
+            }
+        }
+        throw std::runtime_error("Failed to determine HF cache directory");
+    }();
+
+    return cache;
+}
+
+static std::string folder_name_to_repo(const std::string & folder) {
+    constexpr std::string_view prefix = "models--";
+    if (folder.rfind(prefix, 0)) {
+        return {};
+    }
+    std::string result = folder.substr(prefix.length());
+    string_replace_all(result, "--", "/");
+    return result;
+}
+
+static std::string repo_to_folder_name(const std::string & repo_id) {
+    constexpr std::string_view prefix = "models--";
+    std::string result = std::string(prefix) + repo_id;
+    string_replace_all(result, "/", "--");
+    return result;
+}
+
+static fs::path get_repo_path(const std::string & repo_id) {
+    return get_cache_directory() / repo_to_folder_name(repo_id);
+}
+
+static void write_ref(const std::string & repo_id,
+                      const std::string & ref,
+                      const std::string & commit) {
+    fs::path refs_path = get_repo_path(repo_id) / "refs";
+    std::error_code ec;
+    fs::create_directories(refs_path, ec);
+
+    fs::path ref_path = refs_path / ref;
+    fs::path ref_path_tmp = refs_path / (ref + ".tmp");
+    {
+        std::ofstream file(ref_path_tmp);
+        if (!file) {
+            throw std::runtime_error("Failed to write ref file: " + ref_path.string());
+        }
+        file << commit;
+    }
+    std::error_code rename_ec;
+    fs::rename(ref_path_tmp, ref_path, rename_ec);
+    if (rename_ec) {
+        LOG_ERR("%s: unable to rename file: %s to %s\n", __func__,
+                ref_path_tmp.string().c_str(), ref_path.string().c_str());
+        fs::remove(ref_path_tmp, ec);
+    }
+}
+
+static nl::json api_get(const std::string & url,
+                        const std::string & bearer_token) {
+    auto [cli, parts] = common_http_client(url);
+
+    httplib::Headers headers = {
+        {"User-Agent", "llama-cpp/" + build_info},
+        {"Accept", "application/json"}
+    };
+    if (!bearer_token.empty()) {
+        headers.emplace("Authorization", "Bearer " + bearer_token);
+    }
+
+    if (auto res = cli.Get(parts.path, headers)) {
+        auto body = res->body;
+
+        if (res->status == 200) {
+            return nl::json::parse(res->body);
+        }
+        try {
+            body = nl::json::parse(res->body)["error"].get<std::string>();
+        } catch (...) { }
+
+        throw std::runtime_error("GET failed (" + std::to_string(res->status) + "): " + body);
+    } else {
+        throw std::runtime_error("HTTPLIB failed: " + httplib::to_string(res.error()));
+    }
+}
+
+static std::string get_repo_ref(const std::string & repo_id,
+                                const std::string & bearer_token) {
+    try {
+        auto endpoint = get_model_endpoint();
+        auto json = api_get(endpoint + "api/models/" + repo_id + "/refs", bearer_token);
+
+        if (!json.is_object() ||
+            !json.contains("branches") || !json["branches"].is_array()) {
+            LOG_WRN("%s: missing 'branches' for '%s'\n", __func__, repo_id.c_str());
+            return {};
+        }
+
+        std::string name;
+        std::string commit;
+
+        for (const auto & branch : json["branches"]) {
+            if (!branch.is_object() ||
+                !branch.contains("name") || !branch["name"].is_string() ||
+                !branch.contains("targetCommit") || !branch["targetCommit"].is_string()) {
+                continue;
+            }
+            std::string _name = branch["name"].get<std::string>();
+            std::string _commit = branch["targetCommit"].get<std::string>();
+
+            if (_name == "main") {
+                name = _name;
+                commit = _commit;
+                break;
+            }
+
+            if (name.empty() || commit.empty()) {
+                name = _name;
+                commit = _commit;
+            }
+        }
+
+        if (name.empty() || commit.empty()) {
+            LOG_WRN("%s: no valid branch for '%s'\n", __func__, repo_id.c_str());
+            return {};
+        }
+
+        write_ref(repo_id, name, commit);
+        return commit;
+
+    } catch (const nl::json::exception & e) {
+        LOG_ERR("%s: JSON error '%s': %s\n", __func__, repo_id.c_str(), e.what());
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: API error '%s': %s\n", __func__, repo_id.c_str(), e.what());
+    }
+    return {};
+}
+
+hf_files get_repo_files(const std::string & repo_id,
+                        const std::string & bearer_token) {
+    hf_files files;
+    std::string rev = get_repo_ref(repo_id, bearer_token);
+
+    if (rev.empty()) {
+        LOG_WRN("%s: failed to resolve commit hash for %s\n", __func__, repo_id.c_str());
+        return {};
+    }
+
+    try {
+        auto endpoint = get_model_endpoint();
+        auto json = api_get(endpoint + "api/models/" + repo_id + "/tree/" + rev + "?recursive=true", bearer_token);
+
+        if (!json.is_array()) {
+            LOG_WRN("%s: response is not an array for '%s'\n", __func__, repo_id.c_str());
+            return files;
+        }
+
+        for (const auto & item : json) {
+            if (!item.is_object() ||
+                !item.contains("type") || !item["type"].is_string() || item["type"] != "file" ||
+                !item.contains("path") || !item["path"].is_string()) {
+                continue;
+            }
+
+            hf_file file;
+            file.repo_id = repo_id;
+            file.path = item["path"].get<std::string>();
+
+            if (item.contains("lfs") && item["lfs"].is_object()) {
+                if (item["lfs"].contains("oid") && item["lfs"]["oid"].is_string()) {
+                    file.oid = item["lfs"]["oid"].get<std::string>();
+                }
+            } else if (item.contains("oid") && item["oid"].is_string()) {
+                file.oid = item["oid"].get<std::string>();
+            }
+
+            file.url = endpoint + repo_id + "/resolve/" + rev + "/" + file.path;
+
+            fs::path path = file.path;
+            fs::path repo_path = get_repo_path(repo_id);
+            fs::path snapshots_path = repo_path / "snapshots" / rev / path;
+
+            file.local_path = snapshots_path.string();
+
+            files.push_back(file);
+        }
+    } catch (const nl::json::exception & e) {
+        LOG_ERR("%s: JSON error '%s': %s\n", __func__, repo_id.c_str(), e.what());
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: API error '%s': %s\n", __func__, repo_id.c_str(), e.what());
+    }
+    return files;
+}
+
+static std::string get_cached_ref(const fs::path & repo_path) {
+    fs::path refs_path = repo_path / "refs";
+    if (!fs::is_directory(refs_path)) {
+        return {};
+    }
+    for (const auto & entry : fs::directory_iterator(refs_path)) {
+        if (entry.is_regular_file()) {
+            std::ifstream f(entry.path());
+            std::string commit;
+            if (f && std::getline(f, commit) && !commit.empty()) {
+                return commit;
+            }
+        }
+    }
+    return {};
+}
+
+hf_files get_cached_files(const std::string & repo_id) {
+    fs::path cache_dir = get_cache_directory();
+    if (!fs::exists(cache_dir)) {
+        return {};
+    }
+    hf_files files;
+
+    for (const auto & repo : fs::directory_iterator(cache_dir)) {
+        if (!repo.is_directory()) {
+            continue;
+        }
+        fs::path snapshots_path = repo.path() / "snapshots";
+
+        if (!fs::exists(snapshots_path)) {
+            continue;
+        }
+        std::string _repo_id = folder_name_to_repo(repo.path().filename().string());
+
+        if (_repo_id.empty()) {
+            continue;
+        }
+        if (!repo_id.empty() && _repo_id != repo_id) {
+            continue;
+        }
+        std::string commit = get_cached_ref(repo.path());
+        fs::path rev_path = snapshots_path / commit;
+
+        if (commit.empty() || !fs::is_directory(rev_path)) {
+            continue;
+        }
+        for (const auto & entry : fs::recursive_directory_iterator(rev_path)) {
+            if (!entry.is_regular_file() && !entry.is_symlink()) {
+                continue;
+            }
+            fs::path path = entry.path().lexically_relative(rev_path);
+
+            if (!path.empty()) {
+                hf_file file;
+                file.repo_id = _repo_id;
+                file.path = path.generic_string();
+                file.local_path = entry.path().string();
+                files.push_back(std::move(file));
+            }
+        }
+    }
+
+    return files;
+}
+
+std::string finalize_file(const hf_file & file) {
+    static std::atomic<bool> symlinks_disabled{false};
+
+    if (symlinks_disabled || file.oid.empty()) {
+        return file.local_path;
+    }
+
+    std::error_code ec;
+    fs::path snapshot_path(file.local_path);
+
+    if (!fs::exists(snapshot_path, ec) || fs::is_symlink(snapshot_path, ec)) {
+        return file.local_path;
+    }
+
+    fs::path repo_path = get_repo_path(file.repo_id);
+    fs::path blob_path = repo_path / "blobs" / file.oid;
+
+    fs::create_directories(blob_path.parent_path(), ec);
+    fs::rename(snapshot_path, blob_path, ec);
+
+    if (ec) {
+        LOG_WRN("%s: failed to move file to blobs: %s\n", __func__, ec.message().c_str());
+        return file.local_path;
+    }
+
+    fs::path target = fs::relative(blob_path, snapshot_path.parent_path(), ec);
+    fs::create_symlink(target, snapshot_path, ec);
+
+    if (ec) {
+        if (!symlinks_disabled.exchange(true)) {
+            LOG_WRN("%s: failed to create symlink: %s\n", __func__, ec.message().c_str());
+            LOG_WRN("%s: switching to degraded mode\n", __func__);
+        }
+
+        fs::rename(blob_path, snapshot_path, ec);
+
+        if (ec) {
+            LOG_ERR("%s: failed to revert file move: %s\n", __func__, ec.message().c_str());
+        }
+    }
+
+    return file.local_path;
+}
+
+// delete everything after this line, one day
+
+static std::pair<std::string, std::string> parse_manifest_name(std::string & filename) {
+    static const std::regex re(R"(^manifest=([^=]+)=([^=]+)=.*\.json$)");
+    std::smatch match;
+    if (std::regex_match(filename, match, re)) {
+        return {match[1].str(), match[2].str()};
+    }
+    return {};
+}
+
+static std::string make_old_cache_filename(const std::string & owner,
+                                           const std::string & repo,
+                                           const std::string & filename) {
+    auto result = owner + "_" + repo + "_" + filename;
+    string_replace_all(result, "/", "_");
+    return result;
+}
+
+static bool migrate_single_file(const fs::path    & old_cache,
+                                const std::string & owner,
+                                const std::string & repo,
+                                const nl::json    & node,
+                                const hf_files    & files) {
+
+    if (!node.contains("rfilename") ||
+        !node.contains("lfs")       ||
+        !node["lfs"].contains("sha256")) {
+        return false;
+    }
+
+    std::string path = node["rfilename"];
+    std::string sha256 = node["lfs"]["sha256"];
+
+    const hf_file * file_info = nullptr;
+    for (const auto & f : files) {
+        if (f.path == path) {
+            file_info = &f;
+            break;
+        }
+    }
+
+    std::string old_filename = make_old_cache_filename(owner, repo, path);
+    fs::path old_path = old_cache / old_filename;
+    fs::path etag_path = old_path.string() + ".etag";
+
+    if (!fs::exists(old_path)) {
+        if (fs::exists(etag_path)) {
+            LOG_WRN("%s: %s is orphan, deleting...\n", __func__, etag_path.string().c_str());
+            fs::remove(etag_path);
+        }
+        return false;
+    }
+
+    bool delete_old_path = false;
+
+    if (!file_info) {
+        LOG_WRN("%s: %s not found in current repo, deleting...\n", __func__, old_filename.c_str());
+        delete_old_path = true;
+    } else if (!sha256.empty() && !file_info->oid.empty() && sha256 != file_info->oid) {
+        LOG_WRN("%s: %s is not up to date (sha256 mismatch), deleting...\n", __func__, old_filename.c_str());
+        delete_old_path = true;
+    }
+
+    std::error_code ec;
+
+    if (delete_old_path) {
+        fs::remove(old_path, ec);
+        fs::remove(etag_path, ec);
+        return true;
+    }
+
+    fs::path new_path(file_info->local_path);
+    fs::create_directories(new_path.parent_path(), ec);
+
+    if (!fs::exists(new_path, ec)) {
+        fs::rename(old_path, new_path, ec);
+        if (ec) {
+            fs::copy_file(old_path, new_path, ec);
+            if (ec) {
+                LOG_WRN("%s: failed to move/copy %s: %s\n", __func__, old_path.string().c_str(), ec.message().c_str());
+                return false;
+            }
+        }
+        fs::remove(old_path, ec);
+    }
+    fs::remove(etag_path, ec);
+
+    std::string snapshot_file = finalize_file(*file_info);
+    LOG_INF("%s: migrated %s -> %s\n", __func__, old_filename.c_str(), snapshot_file.c_str());
+
+    return true;
+}
+
+void migrate_old_cache_to_hf_cache(const std::string & bearer_token, bool offline) {
+    fs::path old_cache = fs_get_cache_directory();
+    if (!fs::exists(old_cache)) {
+        return;
+    }
+
+    if (offline) {
+        LOG_WRN("%s: skipping migration in offline mode (will run when online)\n", __func__);
+        return; // -hf is not going to work
+    }
+
+    for (const auto & entry : fs::directory_iterator(old_cache)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        auto filename = entry.path().filename().string();
+        auto [owner, repo] = parse_manifest_name(filename);
+
+        if (owner.empty() || repo.empty()) {
+            continue;
+        }
+
+        auto repo_id = owner + "/" + repo;
+        auto files = get_repo_files(repo_id, bearer_token);
+
+        if (files.empty()) {
+            LOG_WRN("%s: could not get repo files for %s, skipping\n", __func__, repo_id.c_str());
+            continue;
+        }
+
+        try {
+            std::ifstream manifest_stream(entry.path());
+            std::string content((std::istreambuf_iterator<char>(manifest_stream)), std::istreambuf_iterator<char>());
+            auto j = nl::json::parse(content);
+            for (const char* key : {"ggufFile", "mmprojFile"}) {
+                if (j.contains(key)) {
+                    migrate_single_file(old_cache, owner, repo, j[key], files);
+                }
+            }
+        } catch (const std::exception & e) {
+            LOG_WRN("%s: failed to parse manifest %s: %s\n", __func__, filename.c_str(), e.what());
+            continue;
+        }
+        fs::remove(entry.path());
+    }
+}
+
+} // namespace hf_cache
