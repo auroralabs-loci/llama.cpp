@@ -621,12 +621,12 @@ template <typename dst_t>
 static __global__ void dequantize_block_nvfp4(
         const void * __restrict__ vx,
         dst_t * __restrict__ yy,
-        const int64_t k) {
+        const int64_t ne) {
     const int64_t i = blockIdx.x;
     const int     tid = threadIdx.x;
 
     const int64_t base = i * QK_NVFP4;
-    if (base >= k) {
+    if (base >= ne) {
         return;
     }
 
