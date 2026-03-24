@@ -2468,7 +2468,6 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
         ggml_tensor dst_slice;
         memset(&dst_slice, 0, sizeof(dst_slice));
         dst_slice.buffer = dst->buffer;
-        dst_slice.op     = GGML_OP_MUL_MAT;
         dst_slice.type   = type_dst_sorted;
         dst_slice.ne[0]  = ne0;
         dst_slice.ne[1]  = tokens_per_expert[i02];
@@ -3863,7 +3862,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
 
                             const ggml_tensor * src0 = up_n->src[0];
                             const ggml_tensor * src1 = up_n->src[1];
-                            const ggml_tensor * ids  = op == GGML_OP_MUL_MAT_ID ? up_n->src[2] : nullptr;
+                            const ggml_tensor * ids  = up_n->src[2];
 
                             if (ggml_cuda_should_fuse_mul_mat_vec_f(up_n)) {
                                 ggml_cuda_mm_fusion_args_host fusion_data{};
