@@ -1297,7 +1297,12 @@ static void ggml_cuda_op_mul_mat_cublas(
     const bool supports_bf16 = GGML_CUDA_CC_IS_NVIDIA(cc) || GGML_CUDA_CC_IS_AMD(cc) ||
         (GGML_CUDA_CC_IS_MTHREADS(cc) && cc >= GGML_CUDA_CC_QY2);
 
-    const bool use_fp16 = (src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) && ggml_is_contiguous(src0) && row_diff == src0->ne[1] && dst->op_params[0] == GGML_PREC_DEFAULT;
+    const bool use_fp16 =
+        src0->type != GGML_TYPE_NVFP4 && 
+        (src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) &&
+        ggml_is_contiguous(src0) &&
+        row_diff == src0->ne[1] &&
+        dst->op_params[0] == GGML_PREC_DEFAULT;
 
     if (supports_bf16 && src0->type == GGML_TYPE_BF16 && ggml_is_contiguous(src0) && row_diff == src0->ne[1]) {
         ggml_cuda_pool_alloc<nv_bfloat16> src1_as_bf16(ctx.pool(id));
@@ -2281,6 +2286,11 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
         any_gpus_with_slow_fp16 = any_gpus_with_slow_fp16   || !fast_fp16_hardware_available(cc);
     }
 
+    // temporarily block MMQ for NVFP4
+    if (src0->type == GGML_TYPE_NVFP4) {
+        use_mul_mat_q = false;
+    }
+
     // debug helpers
     //printf("src0: %8d %8d %8d %8d\n", src0->ne[0], src0->ne[1], src0->ne[2], src0->ne[3]);
     //printf("      %8d %8d %8d %8d\n", src0->nb[0], src0->nb[1], src0->nb[2], src0->nb[3]);
@@ -2350,10 +2360,15 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
             }
         }
 
+        // this is temporary to block MMQ for now
+    if (src0->type != GGML_TYPE_NVFP4) {
         if (ggml_cuda_should_use_mmq(src0->type, cc, ne12, /*n_experts=*/ne02)) {
             ggml_cuda_mul_mat_q(ctx, src0, src1, ids, dst);
             return;
         }
+        
+    }
+
 
         if (ggml_cuda_should_use_mmf(src0->type, cc, WARP_SIZE, src0->ne, src0->nb, src1->ne[2], /*mul_mat_id=*/true)) {
             ggml_cuda_mul_mat_f(ctx, src0, src1, ids, dst);
@@ -2453,6 +2468,7 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor * 
         ggml_tensor dst_slice;
         memset(&dst_slice, 0, sizeof(dst_slice));
         dst_slice.buffer = dst->buffer;
+        dst_slice.op     = GGML_OP_MUL_MAT;
         dst_slice.type   = type_dst_sorted;
         dst_slice.ne[0]  = ne0;
         dst_slice.ne[1]  = tokens_per_expert[i02];
@@ -3847,7 +3863,7 @@ static void ggml_cuda_graph_evaluate_and_capture(ggml_backend_cuda_context * cud
 
                             const ggml_tensor * src0 = up_n->src[0];
                             const ggml_tensor * src1 = up_n->src[1];
-                            const ggml_tensor * ids  = up_n->src[2];
+                            const ggml_tensor * ids  = op == GGML_OP_MUL_MAT_ID ? up_n->src[2] : nullptr;
 
                             if (ggml_cuda_should_fuse_mul_mat_vec_f(up_n)) {
                                 ggml_cuda_mm_fusion_args_host fusion_data{};
@@ -4781,6 +4797,7 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
                     case GGML_TYPE_Q5_1:
                     case GGML_TYPE_Q8_0:
                     case GGML_TYPE_MXFP4:
+                    case GGML_TYPE_NVFP4:
                     case GGML_TYPE_Q2_K:
                     case GGML_TYPE_Q3_K:
                     case GGML_TYPE_Q4_K:
