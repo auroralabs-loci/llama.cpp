@@ -636,7 +636,7 @@ static __global__ void dequantize_block_nvfp4(
     const int sub = tid / (QK_NVFP4_SUB / 2);
     const int j = tid % (QK_NVFP4_SUB / 2);
 
-    const float d = ggml_cuda_cast<float>(ue4m3{xb.d[sub]});
+    const float d = ggml_cuda_ue4m3_to_fp32(xb.d[sub]);
     const uint8_t q = xb.qs[sub * (QK_NVFP4_SUB / 2) + j];
 
     const int64_t y0 = base + sub * QK_NVFP4_SUB + j;
