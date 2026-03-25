@@ -1130,7 +1130,8 @@ class ggml_webgpu_shader_lib {
                         context.src0->type == GGML_TYPE_Q5_0 ||
                         context.src0->type == GGML_TYPE_Q5_1 ||
                         context.src0->type == GGML_TYPE_Q8_0 ||
-                        context.src0->type == GGML_TYPE_Q8_1) {
+                        context.src0->type == GGML_TYPE_Q8_1 ||
+                        context.src0->type == GGML_TYPE_Q6_K) {
                         defines.push_back("RAW_SRC0_BYTES");
                         defines.push_back("SRC0_INNER_TYPE=u32");
                     } else {
@@ -1250,12 +1251,17 @@ class ggml_webgpu_shader_lib {
                     defines.push_back("INIT_SRC0_SHMEM_" + type_upper);
                     defines.push_back("INIT_SRC1_SHMEM_FLOAT");
 
-                    if (context.src0->type == GGML_TYPE_Q4_0 ||
+                    if (context.src0->type == GGML_TYPE_Q2_K ||
+                        context.src0->type == GGML_TYPE_Q3_K ||
+                        context.src0->type == GGML_TYPE_Q4_0 ||
                         context.src0->type == GGML_TYPE_Q4_1 ||
                         context.src0->type == GGML_TYPE_Q5_0 ||
                         context.src0->type == GGML_TYPE_Q5_1 ||
+                        context.src0->type == GGML_TYPE_Q4_K ||
+                        context.src0->type == GGML_TYPE_Q5_K ||
                         context.src0->type == GGML_TYPE_Q8_0 ||
-                        context.src0->type == GGML_TYPE_Q8_1) {
+                        context.src0->type == GGML_TYPE_Q8_1 ||
+                        context.src0->type == GGML_TYPE_Q6_K) {
                         defines.push_back("RAW_SRC0_BYTES");
                         defines.push_back("SRC0_INNER_TYPE=u32");
                     } else {

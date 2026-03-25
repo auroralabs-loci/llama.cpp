@@ -303,13 +303,7 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 #ifdef MUL_ACC_Q6_K
 
 const BLOCK_SIZE = 256u;
-const F16_PER_BLOCK = 105u;
-
-fn load_u32_at(bbase: u32, byte_offset: u32) -> u32 {
-    let aligned = byte_offset & ~3u;
-    let idx = bbase + aligned / 2u;
-    return bitcast<u32>(vec2(src0[idx], src0[idx + 1u]));
-}
+const BLOCK_SIZE_BYTES = 210u;
 
 fn byte_of(v: u32, b: u32) -> u32 {
     return (v >> (b * 8u)) & 0xFFu;
@@ -342,16 +336,15 @@ fn mul_acc(tig: u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
     var local_sum = 0.0;
 
     for (var i = ix; i < nb; i += 2u) {
-        let bbase = (idx_base + k_block_start + i) * F16_PER_BLOCK;
+        let bbase = (idx_base + k_block_start + i) * BLOCK_SIZE_BYTES;
 
-        let d_raw = load_u32_at(bbase, 208u);
-        let d = f32(bitcast<vec2<f16>>(d_raw)[0]);
+        let d = f32(load_src0_f16_at(bbase + 208u));
 
-        let ql1_u32  = load_u32_at(bbase, q_offset_l);
-        let ql2_u32  = load_u32_at(bbase, q_offset_l + 32u);
-        let qh_u32   = load_u32_at(bbase, 128u + q_offset_h);
-        let sc_u32_0 = load_u32_at(bbase, sc_base_byte);
-        let sc_u32_1 = load_u32_at(bbase, sc_base_byte + 4u);
+        let ql1_u32  = load_src0_u32_at(bbase + q_offset_l);
+        let ql2_u32  = load_src0_u32_at(bbase + q_offset_l + 32u);
+        let qh_u32   = load_src0_u32_at(bbase + 128u + q_offset_h);
+        let sc_u32_0 = load_src0_u32_at(bbase + sc_base_byte);
+        let sc_u32_1 = load_src0_u32_at(bbase + sc_base_byte + 4u);
 
         let sc0 = sbyte_of(sc_u32_0, sc_byte_pos);
         let sc2 = sbyte_of(sc_u32_0, sc_byte_pos + 2u);
