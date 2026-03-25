@@ -1,6 +1,6 @@
 #pragma once
 
-#include "convert.cuh"
+#include "common.cuh"
 
 #include <cstdint>
 
