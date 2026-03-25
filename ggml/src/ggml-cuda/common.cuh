@@ -800,13 +800,13 @@ static __device__ __forceinline__ float ggml_cuda_e8m0_to_fp32(uint8_t x) {
 }
 
 static __device__ __forceinline__ float ggml_cuda_ue4m3_to_fp32(uint8_t x) {
-#if CUDART_VERSION >= 11080 || defined(GGML_USE_HIP)
+#ifdef FP8_AVAILABLE
     const uint32_t bits = x * (x != 0x7F && x != 0xFF); // Convert NaN to 0.0f to match CPU implementation.
     const __nv_fp8_e4m3 xf = *reinterpret_cast<const __nv_fp8_e4m3 *>(&bits);
     return static_cast<float>(xf) / 2;
 #else
     NO_DEVICE_CODE;
-#endif // CUDART_VERSION >= 11080 || defined(GGML_USE_HIP)
+#endif // FP8_AVAILABLE
 }
 
 __device__ __forceinline__ uint8_t ggml_cuda_float_to_fp4_e2m1(float x, float e) {
