@@ -261,3 +261,10 @@ struct llama_sampler * common_reasoning_budget_init(
         common_reasoning_budget_state    initial_state) {
     return common_reasoning_budget_init_state(vocab, start_tokens, end_tokens, forced_tokens, budget, initial_state);
 }
+
+common_reasoning_budget_state common_reasoning_budget_get_state(const struct llama_sampler * smpl) {
+    if (!smpl) {
+        return REASONING_BUDGET_IDLE;
+    }
+    return ((const common_reasoning_budget_ctx *)smpl->ctx)->state;
+}
