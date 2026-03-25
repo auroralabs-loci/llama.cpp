@@ -415,13 +415,12 @@ static bool grammar_should_apply(struct common_sampler * gsmpl) {
     if (!gsmpl->rbudget) {
         return true;
     }
-    const auto state = common_reasoning_budget_get_state(gsmpl->rbudget);
-    if (state == REASONING_BUDGET_IDLE || state == REASONING_BUDGET_DONE) {
-        // always apply if reasoning budget sampler is not active
-        return true;
+    if (gsmpl->params.grammar_lazy) {
+        // if grammar is lazy, only apply when reaosning budget is not active
+        const auto state = common_reasoning_budget_get_state(gsmpl->rbudget);
+        return state == REASONING_BUDGET_IDLE || state == REASONING_BUDGET_DONE;
     }
-    // if reasoning budget sampler is active, only apply when not lazy
-    return !gsmpl->params.grammar_lazy;
+    return true;
 }
 
 void common_sampler_accept(struct common_sampler * gsmpl, llama_token token, bool accept_grammar) {
@@ -431,9 +430,12 @@ void common_sampler_accept(struct common_sampler * gsmpl, llama_token token, boo
 
     const auto tm = gsmpl->tm();
 
+    // grammar_should_apply() checks the reasoning budget state, so calculate this before we accept
+    accept_grammar = accept_grammar && grammar_should_apply(gsmpl);
+
     llama_sampler_accept(gsmpl->rbudget, token);
 
-    if (gsmpl->grmr && accept_grammar && grammar_should_apply(gsmpl)) {
+    if (gsmpl->grmr && accept_grammar) {
         llama_sampler_accept(gsmpl->grmr, token);
     }
 
