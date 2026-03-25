@@ -1125,8 +1125,18 @@ class ggml_webgpu_shader_lib {
                     defines.push_back("BYTE_HELPERS");
                     defines.push_back("MUL_ACC_" + type_upper);
 
-                    // For fast path we always dequantize from f16 inside the shader
-                    defines.push_back("SRC0_INNER_TYPE=f16");
+                    if (context.src0->type == GGML_TYPE_Q4_0 ||
+                        context.src0->type == GGML_TYPE_Q4_1 ||
+                        context.src0->type == GGML_TYPE_Q5_0 ||
+                        context.src0->type == GGML_TYPE_Q5_1 ||
+                        context.src0->type == GGML_TYPE_Q8_0 ||
+                        context.src0->type == GGML_TYPE_Q8_1) {
+                        defines.push_back("RAW_SRC0_BYTES");
+                        defines.push_back("SRC0_INNER_TYPE=u32");
+                    } else {
+                        // For fast path we always dequantize from f16 inside the shader
+                        defines.push_back("SRC0_INNER_TYPE=f16");
+                    }
                     break;
                 }
         }
@@ -1240,8 +1250,18 @@ class ggml_webgpu_shader_lib {
                     defines.push_back("INIT_SRC0_SHMEM_" + type_upper);
                     defines.push_back("INIT_SRC1_SHMEM_FLOAT");
 
-                    // Use f16 inside the shader for quantized types
-                    defines.push_back("SRC0_INNER_TYPE=f16");
+                    if (context.src0->type == GGML_TYPE_Q4_0 ||
+                        context.src0->type == GGML_TYPE_Q4_1 ||
+                        context.src0->type == GGML_TYPE_Q5_0 ||
+                        context.src0->type == GGML_TYPE_Q5_1 ||
+                        context.src0->type == GGML_TYPE_Q8_0 ||
+                        context.src0->type == GGML_TYPE_Q8_1) {
+                        defines.push_back("RAW_SRC0_BYTES");
+                        defines.push_back("SRC0_INNER_TYPE=u32");
+                    } else {
+                        // Use f16 inside the shader for quantized types
+                        defines.push_back("SRC0_INNER_TYPE=f16");
+                    }
 
                     variant += std::string("_") + src0_name;
                     break;
@@ -1614,9 +1634,11 @@ class ggml_webgpu_shader_lib {
                 break;
             case GGML_TYPE_Q4_0:
                 defines.push_back("KV_Q4_0");
+                defines.push_back("KV_RAW_U32");
                 break;
             case GGML_TYPE_Q8_0:
                 defines.push_back("KV_Q8_0");
+                defines.push_back("KV_RAW_U32");
                 break;
             default:
                 GGML_ABORT("Unsupported KV type for flash attention shader");

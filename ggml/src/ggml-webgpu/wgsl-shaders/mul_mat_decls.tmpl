@@ -25,6 +25,29 @@ fn store_shmem(val: f16, idx: u32) {
 }
 #endif // SCALAR
 
+#ifdef RAW_SRC0_BYTES
+fn load_src0_u16_at(byte_offset: u32) -> u32 {
+    let word = src0[byte_offset / 4u];
+    let shift = (byte_offset & 2u) * 8u;
+    return (word >> shift) & 0xFFFFu;
+}
+
+fn load_src0_u32_at(byte_offset: u32) -> u32 {
+    let word_idx = byte_offset / 4u;
+    let shift = (byte_offset & 3u) * 8u;
+    let lo = src0[word_idx];
+    if (shift == 0u) {
+        return lo;
+    }
+    let hi = src0[word_idx + 1u];
+    return (lo >> shift) | (hi << (32u - shift));
+}
+
+fn load_src0_f16_at(byte_offset: u32) -> f16 {
+    return bitcast<vec2<f16>>(load_src0_u16_at(byte_offset)).x;
+}
+#endif // RAW_SRC0_BYTES
+
 #ifdef INIT_SRC0_SHMEM_FLOAT
 fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u32) {
     for (var elem_idx = thread_id * VEC_SIZE; elem_idx < TILE_SRC0_SHMEM; elem_idx += TOTAL_WORKGROUP_SIZE * VEC_SIZE) {
@@ -61,6 +84,7 @@ fn init_shmem_src1(thread_id: u32, batch_offset: u32, offset_n: u32, k_outer: u3
 
 #ifdef INIT_SRC0_SHMEM_Q4_0
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 18u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
@@ -81,14 +105,12 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
-            let d = src0[scale_idx];
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
+            let d = load_src0_f16_at(block_byte_base);
 
             for (var j = 0u; j < F16_PER_THREAD; j += 2) {
-                let q_0 = src0[scale_idx + 1u + block_offset + j];
-                let q_1 = src0[scale_idx + 1u + block_offset + j + 1];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 2u + 2u * (block_offset + j);
+                let q_packed = load_src0_u32_at(q_byte_offset);
                 for (var k = 0u; k < 4u; k++) {
                     let q_byte = get_byte(q_packed, k);
                     let q_hi = (f16((q_byte >> 4) & 0xF) - 8.0) * d;
@@ -104,6 +126,7 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
 #ifdef INIT_SRC0_SHMEM_Q4_1
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 20u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
@@ -124,15 +147,13 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
-            let d = src0[scale_idx];
-            let m = src0[scale_idx + 1u];
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
+            let d = load_src0_f16_at(block_byte_base);
+            let m = load_src0_f16_at(block_byte_base + 2u);
 
             for (var j = 0u; j < F16_PER_THREAD; j += 2) {
-                let q_0 = src0[scale_idx + 2u + block_offset + j];
-                let q_1 = src0[scale_idx + 2u + block_offset + j + 1];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 4u + 2u * (block_offset + j);
+                let q_packed = load_src0_u32_at(q_byte_offset);
                 for (var k = 0u; k < 4u; k++) {
                     let q_byte = get_byte(q_packed, k);
                     let q_lo = f16(q_byte & 0xF) * d + m;
@@ -149,6 +170,7 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 #ifdef INIT_SRC0_SHMEM_Q5_0
 // 32 weights per block, each at 4 bits each = 32 * 4 = 128 bits / 16 = 8 f16s per block
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 22u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 // tile_k is defined as 32u, so blocks_k ends up being 1 always
 override BLOCKS_K = TILE_K / BLOCK_SIZE;
@@ -171,18 +193,14 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx  = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
 
-            let d  = src0[scale_idx];
-            let qh0 = src0[scale_idx + 1u];
-            let qh1 = src0[scale_idx + 2u];
-            let qh_packed = bitcast<u32>(vec2(qh0, qh1));
+            let d  = load_src0_f16_at(block_byte_base);
+            let qh_packed = load_src0_u32_at(block_byte_base + 2u);
 
             for (var j = 0u; j < 2; j++) {
-                let q_0 = src0[scale_idx + 3u + block_offset + (j*2)];
-                let q_1 = src0[scale_idx + 3u + block_offset + (j*2) + 1u];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 6u + 2u * (block_offset + j * 2u);
+                let q_packed = load_src0_u32_at(q_byte_offset);
 
                 let j_adjusted = j + (block_offset / 2u);
 
@@ -207,6 +225,7 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 #ifdef INIT_SRC0_SHMEM_Q5_1
 // 32 weights per block, each at 4 bits each = 32 * 4 = 128 bits / 16 = 8 f16s per block
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 24u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 // tile_k is defined as 32u, so blocks_k ends up being 1 always
 override BLOCKS_K = TILE_K / BLOCK_SIZE;
@@ -229,20 +248,16 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx  = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
 
-            let d  = src0[scale_idx];
-            let m = src0[scale_idx + 1u];
-            let qh0 = src0[scale_idx + 2u];
-            let qh1 = src0[scale_idx + 3u];
-            let qh_packed = bitcast<u32>(vec2(qh0, qh1));
+            let d  = load_src0_f16_at(block_byte_base);
+            let m = load_src0_f16_at(block_byte_base + 2u);
+            let qh_packed = load_src0_u32_at(block_byte_base + 4u);
 
             for (var j = 0u; j < 2; j++) {
 
-                let q_0 = src0[scale_idx + 4u + block_offset + (j*2)];
-                let q_1 = src0[scale_idx + 4u + block_offset + (j*2) + 1u];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 8u + 2u * (block_offset + j * 2u);
+                let q_packed = load_src0_u32_at(q_byte_offset);
 
                 let j_adjusted = j + (block_offset / 2u);
 
@@ -266,6 +281,7 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
 #ifdef INIT_SRC0_SHMEM_Q8_0
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 34u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
@@ -286,14 +302,12 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
-            let d = src0[scale_idx];
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
+            let d = load_src0_f16_at(block_byte_base);
 
             for (var j = 0u; j < F16_PER_THREAD; j+=2) {
-                let q_0 = src0[scale_idx + 1u + block_offset + j];
-                let q_1 = src0[scale_idx + 1u + block_offset + j + 1];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 2u + 2u * (block_offset + j);
+                let q_packed = load_src0_u32_at(q_byte_offset);
                 for (var k = 0u; k < 4u; k++) {
                     let q_byte = get_byte_i32(q_packed, k);
 
@@ -308,6 +322,7 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
 #ifdef INIT_SRC0_SHMEM_Q8_1
 const BLOCK_SIZE = 32u;
+const BLOCK_SIZE_BYTES = 36u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
@@ -328,15 +343,13 @@ fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u3
 
         if (global_m < params.m && global_k < params.k / BLOCK_SIZE) {
             let src0_idx = batch_offset + global_m * params.stride_01 + global_k;
-            let scale_idx = src0_idx * F16_PER_BLOCK;
-            let d = src0[scale_idx];
-            let m = src0[scale_idx + 1u];
+            let block_byte_base = src0_idx * BLOCK_SIZE_BYTES;
+            let d = load_src0_f16_at(block_byte_base);
+            let m = load_src0_f16_at(block_byte_base + 2u);
 
             for (var j = 0u; j < F16_PER_THREAD; j+=2) {
-                let q_0 = src0[scale_idx + 2u + block_offset + j];
-                let q_1 = src0[scale_idx + 2u + block_offset + j + 1];
-
-                let q_packed = bitcast<u32>(vec2(q_0, q_1));
+                let q_byte_offset = block_byte_base + 4u + 2u * (block_offset + j);
+                let q_packed = load_src0_u32_at(q_byte_offset);
                 for (var k = 0u; k < 4u; k++) {
                     let q_byte = get_byte_i32(q_packed, k);
 
