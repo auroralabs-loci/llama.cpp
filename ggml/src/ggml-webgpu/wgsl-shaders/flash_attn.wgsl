@@ -95,7 +95,8 @@ fn load_v_u32_at(byte_offset: u32) -> u32 {
 }
 
 fn f16_from_u16(bits: u32) -> f16 {
-    return bitcast<vec2<f16>>(bits).x;
+    let packed = unpack2x16float(bits);
+    return f16(packed[0]);
 }
 #endif
 

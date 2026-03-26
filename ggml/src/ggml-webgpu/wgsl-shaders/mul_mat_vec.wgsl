@@ -56,7 +56,8 @@ fn load_src0_u32_at(byte_offset: u32) -> u32 {
 }
 
 fn load_src0_f16_at(byte_offset: u32) -> f16 {
-    return bitcast<vec2<f16>>(load_src0_u16_at(byte_offset)).x;
+    let packed = unpack2x16float(load_src0_u16_at(byte_offset));
+    return f16(packed[0]);
 }
 #endif
 
