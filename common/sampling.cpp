@@ -562,12 +562,12 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
 
     id = cur_p.data[cur_p.selected].id;
 
-    if (grammar_first && grammar_should_apply(gsmpl)) {
+    if (grammar_first || !grammar_should_apply(gsmpl)) {
         return id;
     }
 
     // check if it the sampled token fits the grammar (grammar-based rejection sampling)
-    if (grammar_should_apply(gsmpl)) {
+    {
         llama_token_data       single_token_data       = { id, 1.0f, 0.0f };
         llama_token_data_array single_token_data_array = { &single_token_data, 1, -1, false };
 
