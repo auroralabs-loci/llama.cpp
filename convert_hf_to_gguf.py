@@ -5100,6 +5100,58 @@ class GPT2Model(TextModel):
         yield from super().modify_tensors(data_torch, new_name, bid)
 
 
+@ModelBase.register("RuGPT3XLForCausalLM")
+class RuGPT3XLModel(TextModel):
+    model_arch = gguf.MODEL_ARCH.GPT2
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._qkv_parts: dict[int, dict[str, Tensor]] = {}
+
+    def set_vocab(self):
+        self._set_vocab_gpt2()
+
+    def get_vocab_base_pre(self, tokenizer) -> str:
+        # ruGPT3XL uses GPT-2 byte-level BPE with the same pre-tokenization regex
+        return "gpt-2"
+
+    def set_gguf_parameters(self):
+        self.gguf_writer.add_block_count(self.block_count)
+        self.gguf_writer.add_context_length(self.hparams["max_position_embeddings"])
+        self.gguf_writer.add_embedding_length(self.hparams["hidden_size"])
+        self.gguf_writer.add_feed_forward_length(self.hparams["intermediate_size"])
+        self.gguf_writer.add_head_count(self.hparams["num_attention_heads"])
+        self.gguf_writer.add_head_count_kv(self.hparams["num_attention_heads"])
+        self.gguf_writer.add_layer_norm_eps(self.hparams["layer_norm_eps"])
+        self.gguf_writer.add_file_type(self.ftype)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # Fuse separate Q, K, V projections into a single QKV tensor
+        if ".self_attn.q_proj." in name or ".self_attn.k_proj." in name or ".self_attn.v_proj." in name:
+            suffix = "weight" if name.endswith(".weight") else "bias"
+            part = "q" if ".q_proj." in name else ("k" if ".k_proj." in name else "v")
+            key = f"{part}.{suffix}"
+
+            assert bid is not None
+            if bid not in self._qkv_parts:
+                self._qkv_parts[bid] = {}
+            self._qkv_parts[bid][key] = data_torch
+
+            q_key, k_key, v_key = f"q.{suffix}", f"k.{suffix}", f"v.{suffix}"
+            if all(k in self._qkv_parts.get(bid, {}) for k in [q_key, k_key, v_key]):
+                q = self._qkv_parts[bid].pop(q_key)
+                k = self._qkv_parts[bid].pop(k_key)
+                v = self._qkv_parts[bid].pop(v_key)
+                qkv = torch.cat([q, k, v], dim=0)
+                qkv_name = self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_QKV, bid, f".{suffix}")
+                logger.info(f"Fused Q/K/V {suffix} for layer {bid} -> {qkv_name}")
+                yield qkv_name, qkv
+            return
+
+        new_name = self.map_tensor_name(name)
+        yield new_name, data_torch
+
+
 @ModelBase.register("PhiForCausalLM")
 class Phi2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.PHI2
