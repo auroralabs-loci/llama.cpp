@@ -37,30 +37,6 @@ fn store_val(group_base: u32) -> f32 {
 }
 #endif
 
-#ifdef RAW_SRC0_BYTES
-fn load_src0_u16_at(byte_offset: u32) -> u32 {
-    let word = src0[byte_offset / 4u];
-    let shift = (byte_offset & 2u) * 8u;
-    return (word >> shift) & 0xFFFFu;
-}
-
-fn load_src0_u32_at(byte_offset: u32) -> u32 {
-    let word_idx = byte_offset / 4u;
-    let shift = (byte_offset & 3u) * 8u;
-    let lo = src0[word_idx];
-    if (shift == 0u) {
-        return lo;
-    }
-    let hi = src0[word_idx + 1u];
-    return (lo >> shift) | (hi << (32u - shift));
-}
-
-fn load_src0_f16_at(byte_offset: u32) -> f16 {
-    let packed = unpack2x16float(load_src0_u16_at(byte_offset));
-    return f16(packed[0]);
-}
-#endif
-
 #ifdef MUL_ACC_FLOAT
 fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
     var local_sum = 0.0;
@@ -78,7 +54,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 18u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 9u; // 1 scale + 8x4 packed weights
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -112,7 +87,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 20u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 10u;
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -147,7 +121,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 22u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 11u;
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -192,7 +165,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 24u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 12u;
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -238,7 +210,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 34u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 17u;
 const WEIGHTS_PER_F16 = 2u;
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -272,7 +243,6 @@ fn mul_acc(tig:u32, tile_size: u32, idx_base: u32, k_outer: u32) -> f32 {
 const BLOCK_SIZE = 32;
 const BLOCK_SIZE_BYTES = 36u;
 const NQ = 16u; // number of weights per thread
-const F16_PER_BLOCK = 18u;
 const WEIGHTS_PER_F16 = 2u;
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 

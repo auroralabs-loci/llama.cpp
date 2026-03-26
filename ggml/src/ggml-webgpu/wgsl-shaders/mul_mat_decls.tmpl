@@ -25,30 +25,6 @@ fn store_shmem(val: f16, idx: u32) {
 }
 #endif // SCALAR
 
-#ifdef RAW_SRC0_BYTES
-fn load_src0_u16_at(byte_offset: u32) -> u32 {
-    let word = src0[byte_offset / 4u];
-    let shift = (byte_offset & 2u) * 8u;
-    return (word >> shift) & 0xFFFFu;
-}
-
-fn load_src0_u32_at(byte_offset: u32) -> u32 {
-    let word_idx = byte_offset / 4u;
-    let shift = (byte_offset & 3u) * 8u;
-    let lo = src0[word_idx];
-    if (shift == 0u) {
-        return lo;
-    }
-    let hi = src0[word_idx + 1u];
-    return (lo >> shift) | (hi << (32u - shift));
-}
-
-fn load_src0_f16_at(byte_offset: u32) -> f16 {
-    let packed = unpack2x16float(load_src0_u16_at(byte_offset));
-    return f16(packed[0]);
-}
-#endif // RAW_SRC0_BYTES
-
 #ifdef INIT_SRC0_SHMEM_FLOAT
 fn init_shmem_src0(thread_id: u32, batch_offset: u32, offset_m: u32, k_outer: u32) {
     for (var elem_idx = thread_id * VEC_SIZE; elem_idx < TILE_SRC0_SHMEM; elem_idx += TOTAL_WORKGROUP_SIZE * VEC_SIZE) {
@@ -89,7 +65,6 @@ const BLOCK_SIZE_BYTES = 18u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 9u; // 1 scale + 8x4 packed weights
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -131,7 +106,6 @@ const BLOCK_SIZE_BYTES = 20u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 10u; // 1 scale + 8 packed weights + 1 mean
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16;
 
@@ -176,7 +150,6 @@ const BLOCK_SIZE_BYTES = 22u;
 // tile_k is defined as 32u, so blocks_k ends up being 1 always
 override BLOCKS_K = TILE_K / BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 11u; // 1 scale + 2 qh + 8 packed weights
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16; // 16 / 4 = 4 f16s per thread, each thread should handle 4 f16s * 4 weights per = 16 weights
 
@@ -231,7 +204,6 @@ const BLOCK_SIZE_BYTES = 24u;
 // tile_k is defined as 32u, so blocks_k ends up being 1 always
 override BLOCKS_K = TILE_K / BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 12u; // 1 scale + 2 qh + 8 packed weights + 1 mean
 const WEIGHTS_PER_F16 = 4u; // 4 weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16; // 16 / 4 = 4 f16s per thread, each thread should handle 4 f16s * 4 weights per = 16 weights
 
@@ -286,7 +258,6 @@ const BLOCK_SIZE_BYTES = 34u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 17u; // 1 scale + 16 in array of weights
 const WEIGHTS_PER_F16 = 2u; // 2 8-bit weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16; // 8 f16s per thread
 
@@ -327,7 +298,6 @@ const BLOCK_SIZE_BYTES = 36u;
 // the number of blocks per k-tile. Note that this currently only works if TILE_K is a multiple of BLOCK_SIZE, which may need to be rethought for larger quantized types.
 override BLOCKS_K = TILE_K/BLOCK_SIZE;
 const NQ = 16u;
-const F16_PER_BLOCK = 18u; // 1 scale + 1 mean + 8 32-bit values in array of weights
 const WEIGHTS_PER_F16 = 2u; // 2 8-bit weights per f16
 const F16_PER_THREAD = NQ / WEIGHTS_PER_F16; // 8 f16s per thread, 2 threads per block
 

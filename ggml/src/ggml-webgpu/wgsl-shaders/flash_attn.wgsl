@@ -6,7 +6,7 @@ enable chromium_experimental_subgroup_matrix;
 
 #ifdef KV_F32
 #define KV_TYPE f32
-#elif defined(KV_RAW_U32)
+#elif defined(KV_Q4_0) || defined(KV_Q8_0)
 #define KV_TYPE u32
 #else
 #define KV_TYPE f16
@@ -59,7 +59,7 @@ fn get_byte_i32(value: u32, index: u32) -> i32 {
     return bitcast<i32>(((value >> (index * 8)) & 0xFF) << 24) >> 24;
 }
 
-#ifdef KV_RAW_U32
+#if defined(KV_Q4_0) || defined(KV_Q8_0)
 fn load_k_u16_at(byte_offset: u32) -> u32 {
     let word = K[byte_offset / 4u];
     let shift = (byte_offset & 2u) * 8u;

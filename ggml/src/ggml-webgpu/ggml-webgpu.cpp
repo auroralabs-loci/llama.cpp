@@ -735,7 +735,6 @@ static void ggml_backend_webgpu_buffer_memset(webgpu_global_context & ctx,
         ggml_backend_webgpu_build(ctx, ctx->memset_buf_pool, ctx->memset_pipelines[0], params, entries, wg_x);
     std::vector<webgpu_command>    commands = { command };
     std::vector<webgpu_submission> sub      = { ggml_backend_webgpu_submit(ctx, commands, ctx->memset_buf_pool) };
-    //ggml_backend_webgpu_wait(ctx, sub);
 }
 
 /** End WebGPU Actions */
@@ -2661,17 +2660,6 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
         // memset the remaining bytes
         ggml_backend_webgpu_buffer_memset(buf_ctx->global_ctx, buf_ctx->buffer, val32,
                                           total_offset + (size - remaining_size), remaining_size);
-    } else {
-        // wait for WriteBuffer to complete
-//        buf_ctx->global_ctx->instance.WaitAny(buf_ctx->global_ctx->queue.OnSubmittedWorkDone(
-//                                                  wgpu::CallbackMode::AllowSpontaneous,
-//                                                  [](wgpu::QueueWorkDoneStatus status, wgpu::StringView message) {
-//                                                      if (status != wgpu::QueueWorkDoneStatus::Success) {
-//                                                          GGML_LOG_ERROR("ggml_webgpu: Failed to submit commands: %s\n",
-//                                                                         std::string(message).c_str());
-//                                                      }
-//                                                  }),
-//                                              UINT64_MAX);
     }
     WEBGPU_CPU_PROFILE_TOTAL_END(set_tensor, buf_ctx->global_ctx);
 }
