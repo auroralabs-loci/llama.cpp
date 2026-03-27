@@ -287,7 +287,7 @@ void analyze_reasoning::compare_reasoning_presence() {
             return p.literal(reasoning_content) + p.space() + p.optional(p.tag("post", (p.marker() + p.space())) + p.rest());
         });
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
+            return p.tag("pre", p.marker() + p.space()) + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
         });
         // try the more aggressive parse first, if it fails, fall back to the delimiter one
         auto result = parser_wrapped.parse_anywhere_and_extract(comparison->output_B);
@@ -431,7 +431,7 @@ void analyze_reasoning::compare_reasoning_scope() {
         LOG_DBG(ANSI_ORANGE "%s: Detected TOOLS_ONLY reasoning mode\n" ANSI_RESET, __func__);
 
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space()));
+            return p.tag("pre", p.marker() + p.space()) + p.literal(reasoning_content) + p.space() + p.tag("post", (p.marker() + p.space()));
         });
         auto result = parser_wrapped.parse_anywhere_and_extract(comparison->output_B);
         if (result.result.success()) {
@@ -524,7 +524,7 @@ analyze_content::analyze_content(const common_chat_template & tmpl, const analyz
         // Take the more promising diff
         std::string pure_content = rdiff.length() > diff_tools.left.length() ? rdiff : diff_tools.left;
         auto parser_wrapped = build_tagged_peg_parser([&](common_peg_parser_builder &p) {
-            return p.tag("pre", p.marker()) + p.space() + p.literal(response) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
+            return p.tag("pre", p.marker() + p.space()) + p.literal(response) + p.space() + p.tag("post", (p.marker() + p.space())) + p.rest();
         });
         auto result = parser_wrapped.parse_anywhere_and_extract(pure_content);
         start = result.tags["pre"];

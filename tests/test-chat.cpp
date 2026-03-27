@@ -2548,7 +2548,7 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
     {
         auto tst = peg_tester("models/templates/MiniMax-M2.jinja", detailed_debug);
         tst.test(
-               "</think><minimax:tool_call>\n<invoke name=\"special_function\">\n<parameter "
+               "<minimax:tool_call>\n<invoke name=\"special_function\">\n<parameter "
                "name=\"arg1\">1</parameter>\n</invoke>\n</minimax:tool_call>")
             .tools({ special_function_tool })
             .expect(message_assist_call)
