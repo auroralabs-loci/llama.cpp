@@ -297,7 +297,7 @@ void analyze_reasoning::compare_reasoning_presence() {
         if (result.result.success()) {
             if (!result.tags["pre"].empty() && !result.tags["post"].empty()) {
                 mode = reasoning_mode::TAG_BASED;
-                start = trim_whitespace(result.tags["pre"]);
+                start = trim_leading_whitespace(result.tags["pre"]);
                 end   = trim_trailing_whitespace(result.tags["post"]);
             } else if (!result.tags["post"].empty()) {
                 mode = reasoning_mode::TAG_BASED;
@@ -333,7 +333,7 @@ void analyze_reasoning::compare_thinking_enabled() {
     if (left_trimmed.empty() && !diff.right.empty()) {
         if (!right_trimmed.empty() && string_ends_with(comparison->output_B, right_trimmed)) {
             if (start.empty()) {
-                start = right_trimmed;
+                start = trim_leading_whitespace(diff.right);
                 mode  = reasoning_mode::TAG_BASED;
             }
         }
@@ -344,7 +344,7 @@ void analyze_reasoning::compare_thinking_enabled() {
                 if (seg.size() >= 2 && seg[seg.size() - 1].value == left_trimmed && seg[seg.size() - 2].type == segment_type::MARKER) {
                     start = seg[seg.size() - 2].value;
                 }
-                end = left_trimmed;
+                end = trim_trailing_whitespace(diff.left);
                 mode = reasoning_mode::TAG_BASED;
             }
         }
@@ -363,15 +363,23 @@ void analyze_reasoning::compare_thinking_enabled() {
             size_t len = std::min(base.size(), anchor_len);
             std::string anchor = base.substr(base.size() - len);
             auto pos = extended.rfind(anchor);
-            if (pos == std::string::npos || pos + len >= extended.size()) continue;
+            if (pos == std::string::npos || pos + len >= extended.size()) {
+                continue;
+            }
 
             std::string extra = trim_whitespace(extended.substr(pos + len));
-            if (extra.empty()) continue;
+            if (extra.empty()) {
+                continue;
+            }
 
             auto seg = prune_whitespace_segments(segmentize_markers(extra));
             if (seg.size() == 2 && seg[0].type == segment_type::MARKER && seg[1].type == segment_type::MARKER) {
-                if (start.empty()) start = seg[0].value;
-                if (end.empty())   end   = seg[1].value;
+                if (start.empty()) {
+                    start = seg[0].value;
+                }
+                if (end.empty()) {
+                    end   = seg[1].value;
+                }
                 mode = reasoning_mode::TAG_BASED;
                 break;
             }
