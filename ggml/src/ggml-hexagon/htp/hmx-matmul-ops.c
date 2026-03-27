@@ -698,7 +698,7 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
         return hmx_mat_mul_permuted_w16a32_batched_legacy(ctx, params);
     }
 
-    hmx_init_column_scales(vtcm_scales, Q6_V_vsplat_R(0x3c00));  // fp16: 1.0
+    hmx_init_column_scales(vtcm_scales, hvx_vec_splat_f16(1.0f));  // fp16: 1.0
 
     FARF(MEDIUM, "%s: grouped path m=%d k=%d n=%d group=%d streams=%d mc=%zu nc=%zu vtcm=%zu/%zu",
             __func__, params->m, params->k, params->n, group_size, params->ne13,
@@ -874,7 +874,7 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
         return -1;
     }
 
-    hmx_init_column_scales(vtcm_scales, Q6_V_vsplat_R(0x3c00));  // fp16: 1.0
+    hmx_init_column_scales(vtcm_scales, hvx_vec_splat_f16(1.0f));  // fp16: 1.0
 
     FARF(MEDIUM, "%s: m=%d k=%d n=%d mc=%zu nc=%zu vtcm=%zu/%zu",
          __func__, m, k, n, m_chunk_n_rows, n_chunk_n_cols,
@@ -1073,7 +1073,7 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
         return -1;
     }
 
-    hmx_init_column_scales(vtcm_scales, Q6_V_vsplat_R(0x3c00));  // fp16: 1.0
+    hmx_init_column_scales(vtcm_scales, hvx_vec_splat_f16(1.0f));  // fp16: 1.0
 
     FARF(MEDIUM, "%s: m=%d k=%d n=%d wtype=%d pipe=%d mc=%zu nc=%zu vtcm=%zu/%zu",
          __func__, m, k, n, weight_type, use_pipeline,
@@ -1434,7 +1434,7 @@ int mat_mul_qk_0_d16a32_out_stationary(struct htp_context *ctx, float *restrict 
             v = Q6_V_vror_VR(v, VLEN - 8);
         }
     }
-    hmx_init_column_scales(vtcm_scales, Q6_V_vsplat_R(0x3c00));  // fp16: 1.0
+    hmx_init_column_scales(vtcm_scales, hvx_vec_splat_f16(1.0f));  // fp16: 1.0
 
     TIMER_DEFINE(fetch);
     TIMER_DEFINE(act_load);
