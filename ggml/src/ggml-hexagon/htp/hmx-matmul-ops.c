@@ -716,6 +716,9 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
     const size_t fp16_row_bytes   = (size_t) params->k * sizeof(__fp16);
     const size_t weight_row_bytes = (size_t) params->weight_stride * sizeof(__fp16);
 
+    HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
+    hmx_set_output_scales(vtcm_scales);
+
     for (int b3 = 0; b3 < params->ne13; ++b3) {
         for (int b2_base = 0; b2_base < params->ne12; b2_base += group_size) {
             const __fp16 *weight_group = hmx_matmul_weight_batch_ptr(params, b2_base, b3);
@@ -760,9 +763,6 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
                                       fp16_row_bytes, weight_row_bytes, fp16_row_bytes, n_cols_first);
                 }
 
-                HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
-                hmx_set_output_scales(vtcm_scales);
-
                 for (size_t nc = 0; nc < (size_t) params->n; nc += n_chunk_n_cols) {
                     const size_t n_cols = hex_smin((size_t) params->n - nc, n_chunk_n_cols);
                     const size_t n_col_tiles = hmx_ceil_div((int) n_cols, HMX_FP16_TILE_N_COLS);
@@ -803,11 +803,11 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
                         TIMER_STOP(output_store);
                     }
                 }
-
-                HAP_compute_res_hmx_unlock(ctx->vtcm_rctx);
             }
         }
     }
+
+    HAP_compute_res_hmx_unlock(ctx->vtcm_rctx);
 
     TIMER_STOP(total);
 
