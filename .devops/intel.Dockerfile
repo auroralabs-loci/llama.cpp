@@ -34,7 +34,7 @@ RUN mkdir -p /app/full \
 FROM intel/deep-learning-essentials:$ONEAPI_VERSION AS base
 
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl\
+    && apt-get install -y libgomp1 curl \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \
