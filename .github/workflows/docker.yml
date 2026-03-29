@@ -126,8 +126,6 @@ jobs:
     needs: [prepare_matrices, create_tag]
 
     runs-on: ${{ matrix.config.runs_on }}
-    env:
-      COMMIT_SHA: ${{ github.sha }}
     strategy:
       fail-fast: false
       matrix:
