@@ -486,8 +486,10 @@ static void core_dot_chunk_fp16(__fp16 *       output,
                                 size_t         n_col_tiles,
                                 size_t         n_dot_tiles) {
     const size_t tile_row_stride = n_dot_tiles * HMX_FP16_TILE_N_ELMS;
+    const size_t tile_col_stride = n_col_tiles * HMX_FP16_TILE_N_ELMS;
     for (size_t r = 0; r < n_row_tiles; ++r) {
         const __fp16 * row_base = activation + r * tile_row_stride;
+        __fp16 * out_tile       = output + r * tile_col_stride;
 
         for (size_t c = 0; c < n_col_tiles; ++c) {
             Q6_mxclracc_hf();
@@ -499,8 +501,8 @@ static void core_dot_chunk_fp16(__fp16 *       output,
                 col_tiles += HMX_FP16_TILE_N_ELMS;
             }
 
-            __fp16 * out_tile = output + (r * n_col_tiles + c) * HMX_FP16_TILE_N_ELMS;
             hmx_consume_accumulator_fp16(out_tile);
+            out_tile += HMX_FP16_TILE_N_ELMS;
         }
     }
 }
