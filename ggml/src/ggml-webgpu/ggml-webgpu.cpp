@@ -171,6 +171,7 @@ struct webgpu_buf_pool {
         // Try growing the pool if no free buffers
         if (free.empty() && cur_pool_size < max_pool_size && should_grow) {
             cur_pool_size++;
+            lock.unlock(); // avoid deadlock between this lock and Dawn's internal locks when buffers are freed in callbacks
             wgpu::Buffer dev_buf;
             ggml_webgpu_create_buffer(device, dev_buf, buf_size, dev_buf_usage, "ggml_webgpu_dev_pool_buf");
 
