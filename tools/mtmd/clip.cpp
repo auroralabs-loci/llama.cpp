@@ -947,6 +947,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 builder = std::make_unique<clip_graph_youtuvl>(ctx, img);
             } break;
+        case PROJECTOR_TYPE_YASA2:
+            {
+                builder = std::make_unique<clip_graph_yasa2>(ctx, img);
+            } break;
         default:
             GGML_ABORT("missing cgraph builder");
     }
@@ -1388,6 +1392,12 @@ struct clip_model_loader {
                         // support max_height * max_width = 8000 * 8000. 8000/16/2 = 250 image tokens
                         hparams.set_limit_image_tokens(1, 62500);
                         hparams.set_warmup_n_tokens(16*16); // avoid OOM on warmup
+                    } break;
+                case PROJECTOR_TYPE_YASA2:
+                    {
+                        hparams.ffn_op = FFN_GELU_ERF;
+                        log_ffn_op = "gelu_erf";
+                        hparams.set_warmup_n_tokens(64);
                     } break;
                 case PROJECTOR_TYPE_GLM4V:
                     {
@@ -1838,6 +1848,52 @@ struct clip_model_loader {
                     model.mm_0_b = get_tensor(string_format(TN_LLAVA_PROJ, 0, "bias"));
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));  // merger.mlp.2
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"));
+                } break;
+            case PROJECTOR_TYPE_YASA2:
+                {
+                    model.yasa_patch_w = get_tensor(TN_YASA_PATCH_W);
+                    model.yasa_patch_b = get_tensor(TN_YASA_PATCH_B, false);
+                    model.yasa_patch_ln_w = get_tensor(TN_YASA_PATCH_LN_W, false);
+                    model.yasa_patch_ln_b = get_tensor(TN_YASA_PATCH_LN_B, false);
+                    model.yasa_backbone_ln_w = get_tensor(TN_YASA_BACKBONE_LN_W, false);
+                    model.yasa_backbone_ln_b = get_tensor(TN_YASA_BACKBONE_LN_B, false);
+                    model.yasa_vision_pos_embed = get_tensor(TN_YASA_POS_EMBD, false);
+                    model.mm_0_w = get_tensor(string_format(TN_LLAVA_PROJ, 0, "weight"));
+                    model.mm_0_b = get_tensor(string_format(TN_LLAVA_PROJ, 0, "bias"), false);
+                    model.mm_2_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));
+                    model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"), false);
+
+                    model.yasa_stages.clear();
+                    for (int s = 0; ; ++s) {
+                        yasa2_stage stage;
+                        stage.down_ln_w   = get_tensor(string_format(TN_YASA_STAGE_DOWN_LN, s, "weight"), false);
+                        stage.down_ln_b   = get_tensor(string_format(TN_YASA_STAGE_DOWN_LN, s, "bias"), false);
+                        stage.down_conv_w = get_tensor(string_format(TN_YASA_STAGE_DOWN_CONV, s, "weight"), false);
+                        stage.down_conv_b = get_tensor(string_format(TN_YASA_STAGE_DOWN_CONV, s, "bias"), false);
+
+                        for (int bi = 0; ; ++bi) {
+                            yasa2_block blk;
+                            blk.dw_w = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "dw", "weight"), false);
+                            if (!blk.dw_w) {
+                                break;
+                            }
+                            blk.dw_b  = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "dw", "bias"), false);
+                            blk.ln_w  = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "ln", "weight"), false);
+                            blk.ln_b  = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "ln", "bias"), false);
+                            blk.pw1_w = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "pw1", "weight"), false);
+                            blk.pw1_b = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "pw1", "bias"), false);
+                            blk.grn_w = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "grn", "weight"), false);
+                            blk.grn_b = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "grn", "bias"), false);
+                            blk.pw2_w = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "pw2", "weight"), false);
+                            blk.pw2_b = get_tensor(string_format(TN_YASA_STAGE_BLK, s, bi, "pw2", "bias"), false);
+                            stage.blocks.push_back(blk);
+                        }
+
+                        if (!stage.down_conv_w && stage.blocks.empty()) {
+                            break;
+                        }
+                        model.yasa_stages.push_back(std::move(stage));
+                    }
                 } break;
             case PROJECTOR_TYPE_GLM4V:
                 {
@@ -2801,6 +2857,8 @@ int clip_n_output_tokens_x(const struct clip_ctx * ctx, struct clip_image_f32 * 
             return (img->nx / params.patch_size) / 2;
         case PROJECTOR_TYPE_STEP3VL:
             return img->nx / (params.patch_size * params.n_merge);
+        case PROJECTOR_TYPE_YASA2:
+            return 8;
         default:
             break;
     }
@@ -2820,6 +2878,8 @@ int clip_n_output_tokens_y(const struct clip_ctx * ctx, struct clip_image_f32 * 
             return (img->ny / params.patch_size) / 2;
         case PROJECTOR_TYPE_STEP3VL:
             return img->ny / (params.patch_size * params.n_merge);
+        case PROJECTOR_TYPE_YASA2:
+            return 8;
         default:
             break;
     }
@@ -2842,6 +2902,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_PHI4:
             {
                 // do nothing
+            } break;
+        case PROJECTOR_TYPE_YASA2:
+            {
+                n_patches = 64; // adaptive average pooling to 8x8 tokens
             } break;
         case PROJECTOR_TYPE_LDP:
         case PROJECTOR_TYPE_LDPV2:
@@ -3463,6 +3527,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_PHI4:
         case PROJECTOR_TYPE_COGVLM:
         case PROJECTOR_TYPE_HUNYUANOCR:
+        case PROJECTOR_TYPE_YASA2:
             {
                 // do nothing
             } break;
@@ -3689,6 +3754,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_KIMIVL:
         case PROJECTOR_TYPE_PADDLEOCR:
         case PROJECTOR_TYPE_KIMIK25:
+        case PROJECTOR_TYPE_YASA2:
             return ctx->model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_HUNYUANOCR:
             return ctx->model.mm_model_proj->ne[1];

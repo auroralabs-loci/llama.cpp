@@ -293,6 +293,12 @@ struct mtmd_context {
                     img_end = "<|vision_end|>";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_youtuvl>(ctx_v);
                 } break;
+            case PROJECTOR_TYPE_YASA2:
+                {
+                    img_beg = "<image>";
+                    img_end = "</image>";
+                    image_preproc = std::make_unique<mtmd_image_preprocessor_fixed_size>(ctx_v);
+                } break;
             case PROJECTOR_TYPE_GEMMA3:
             case PROJECTOR_TYPE_GEMMA3NV:
                 {
