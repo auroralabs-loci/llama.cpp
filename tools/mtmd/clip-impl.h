@@ -243,8 +243,6 @@
 #define TN_STD_SCALE             "v.std_scale"
 
 // yasa2
-#define TN_YASA_PATCH_W          "v.patch_embd.weight"
-#define TN_YASA_PATCH_B          "v.patch_embd.bias"
 #define TN_YASA_PATCH_LN_W       "v.patch_ln.weight"
 #define TN_YASA_PATCH_LN_B       "v.patch_ln.bias"
 #define TN_YASA_BACKBONE_LN_W    "v.backbone_ln.weight"

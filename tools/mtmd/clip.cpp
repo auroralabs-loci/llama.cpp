@@ -1851,8 +1851,11 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_YASA2:
                 {
-                    model.yasa_patch_w = get_tensor(TN_YASA_PATCH_W);
-                    model.yasa_patch_b = get_tensor(TN_YASA_PATCH_B, false);
+                    // reuse tensors already loaded by the common section
+                    // (TN_PATCH_EMBD and TN_PATCH_BIAS have the same tensor names)
+                    GGML_ASSERT(model.patch_embeddings_0 && "yasa2 requires v.patch_embd.weight");
+                    model.yasa_patch_w = model.patch_embeddings_0;
+                    model.yasa_patch_b = model.patch_bias;
                     model.yasa_patch_ln_w = get_tensor(TN_YASA_PATCH_LN_W, false);
                     model.yasa_patch_ln_b = get_tensor(TN_YASA_PATCH_LN_B, false);
                     model.yasa_backbone_ln_w = get_tensor(TN_YASA_BACKBONE_LN_W, false);
