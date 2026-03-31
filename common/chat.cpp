@@ -3,6 +3,7 @@
 #include "chat-auto-parser-helpers.h"
 #include "chat-auto-parser.h"
 #include "chat-peg-parser.h"
+#include "chat-reka.h"
 #include "common.h"
 #include "ggml.h"
 #include "json-schema-to-grammar.h"
@@ -2125,6 +2126,15 @@ std::optional<common_chat_params> common_chat_try_specialized_template(
             workaround::convert_tool_responses_gemma4(params.messages);
         }
         return common_chat_params_init_gemma4(tmpl, params);
+    }
+
+    // Reka Edge - uses <tool_call>/<tool_response> with <sep> delimiters and vision tokens
+    if (src.find("<REKA_IMG_TOKEN>") != std::string::npos &&
+        src.find("continue_final_message") != std::string::npos &&
+        src.find("<tool_response>") != std::string::npos &&
+        src.find("num_video_frames") != std::string::npos) {
+        LOG_DBG("Using specialized template: Reka Edge\n");
+        return common_chat_params_init_reka_edge(tmpl, params);
     }
 
     return std::nullopt;
