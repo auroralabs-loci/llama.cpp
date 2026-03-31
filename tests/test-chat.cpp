@@ -816,6 +816,34 @@ const common_chat_msg message_user_parts{
     /* .tool_call_id = */ "",
 };
 
+const common_chat_msg message_user_image_parts{
+    "user",
+    /* .content = */ "",
+    /* .content_parts = */
+    {
+     { "text", "Describe this" },
+     { "image_url", "" },
+     },
+    /* .tool_calls = */ {},
+    /* .reasoning_content = */ "",
+    /* .tool_name = */ "",
+    /* .tool_call_id = */ "",
+};
+
+const common_chat_msg message_user_video_parts{
+    "user",
+    /* .content = */ "",
+    /* .content_parts = */
+    {
+     { "video_url", "" },
+     { "text", "Summarize it" },
+     },
+    /* .tool_calls = */ {},
+    /* .reasoning_content = */ "",
+    /* .tool_name = */ "",
+    /* .tool_call_id = */ "",
+};
+
 static common_chat_msg simple_assist_msg(const std::string & content,
                                          const std::string & reasoning_content = "",
                                          const std::string & tool_name         = "",
@@ -1407,6 +1435,8 @@ static void test_msgs_oaicompat_json_conversion() {
     std::vector<common_chat_msg> msgs{
         message_user,
         message_user_parts,
+        message_user_image_parts,
+        message_user_video_parts,
         message_assist_call,
         message_assist_call_thoughts,
         message_assist_call_thoughts_unparsed,
@@ -1438,6 +1468,23 @@ static void test_msgs_oaicompat_json_conversion() {
                               "  }\n"
                               "]"),
                   common_chat_msgs_to_json_oaicompat({ message_user_parts }).dump(2));
+
+    assert_equals(std::string("[\n"
+                              "  {\n"
+                              "    \"role\": \"user\",\n"
+                              "    \"content\": [\n"
+                              "      {\n"
+                              "        \"type\": \"text\",\n"
+                              "        \"text\": \"Describe this\"\n"
+                              "      },\n"
+                              "      {\n"
+                              "        \"type\": \"image_url\",\n"
+                              "        \"text\": \"\"\n"
+                              "      }\n"
+                              "    ]\n"
+                              "  }\n"
+                              "]"),
+                  common_chat_msgs_to_json_oaicompat({ message_user_image_parts }).dump(2));
 
     // Note: content is "" instead of null due to workaround for templates that render null as "None"
     assert_equals(std::string("[\n"
@@ -3595,6 +3642,51 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
             .run();
     }
 
+    // Reka Edge
+    {
+        auto tst = peg_tester("models/templates/Reka-Edge.jinja", detailed_debug);
+        tst.test("Hello, world!\nWhat's up?")
+            .enable_thinking(false)
+            .expect(message_assist)
+            .run();
+        tst.test("I'm\nthinking</think>\n\nHello, world!\nWhat's up?")
+            .enable_thinking(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_assist_thoughts)
+            .run();
+        tst.test("<tool_call>\n{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n</tool_call>")
+            .enable_thinking(false)
+            .tools({ special_function_tool })
+            .expect(message_assist_call)
+            .run();
+        tst.test("Hello, world!\nWhat's up?\n<tool_call>\n{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n</tool_call>")
+            .enable_thinking(false)
+            .tools({ special_function_tool })
+            .expect(message_assist_call_content)
+            .run();
+        tst.test("I'm\nthinking</think>\n\n<tool_call>\n{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n</tool_call>")
+            .enable_thinking(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .tools({ special_function_tool })
+            .expect(message_assist_call_thoughts)
+            .run();
+        tst.test("<tool_call>\n{\"name\": \"special_function\", \"arguments\": {\"arg1\": 1}}\n</tool_call>\n<tool_call>\n{\"name\": \"special_function_with_opt\", \"arguments\": {\"arg1\": 1, \"arg2\": 2}}\n</tool_call>")
+            .enable_thinking(false)
+            .parallel_tool_calls(true)
+            .tools({ special_function_tool, special_function_tool_with_optional_param })
+            .expect_tool_calls({
+                { "special_function", R"({"arg1": 1})", {} },
+                { "special_function_with_opt", R"({"arg1": 1, "arg2": 2})", {} },
+            })
+            .run();
+        tst.test("<tool_call>\n{\"name\": \"special_function\", \"arguments\": {\"arg")
+            .enable_thinking(false)
+            .tools({ special_function_tool })
+            .is_partial(true)
+            .expect(message_assist_call_cutoff_args)
+            .run();
+    }
+
     // Apriel 1.5
     {
         auto tst = peg_tester("models/templates/unsloth-Apriel-1.5.jinja", detailed_debug);
@@ -4077,6 +4169,63 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
     }
 }
 
+static void test_reka_edge_common_path() {
+    auto tmpls = read_templates("models/templates/Reka-Edge.jinja");
+
+    {
+        common_chat_templates_inputs inputs;
+        common_chat_msg system_msg;
+        system_msg.role = "system";
+        system_msg.content = "Use tools and inspect media carefully.";
+
+        common_chat_msg tool_call_msg = simple_assist_msg("", "", "special_function", "{\"arg1\": 1}");
+
+        common_chat_msg tool_msg;
+        tool_msg.role = "tool";
+        tool_msg.tool_name = "special_function";
+        tool_msg.tool_call_id = "call0";
+        tool_msg.content = "Sunny";
+
+        inputs.messages = { system_msg, message_user_image_parts, tool_call_msg, tool_msg, message_user_video_parts };
+        inputs.tools = { special_function_tool };
+        inputs.enable_thinking = true;
+        inputs.add_generation_prompt = true;
+        inputs.chat_template_kwargs["num_img_tokens"] = "4";
+        inputs.chat_template_kwargs["num_video_frames"] = "3";
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+
+        if (params.prompt.find("<image><REKA_IMG_TOKEN><REKA_IMG_TOKEN><REKA_IMG_TOKEN><REKA_IMG_TOKEN></image>") == std::string::npos) {
+            throw std::runtime_error("Reka Edge prompt did not render image placeholder");
+        }
+        if (params.prompt.find("<video>") == std::string::npos) {
+            throw std::runtime_error("Reka Edge prompt did not render video placeholder");
+        }
+        if (params.prompt.find("<tool_response>\nSunny\n</tool_response><sep>") == std::string::npos) {
+            throw std::runtime_error("Reka Edge prompt did not render tool response history");
+        }
+        if (params.prompt.rfind("assistant: <think>\n") == std::string::npos) {
+            throw std::runtime_error("Reka Edge prompt did not render thinking generation prompt");
+        }
+    }
+
+    {
+        common_chat_templates_inputs inputs;
+        inputs.messages = {
+            message_user,
+            simple_assist_msg("The first point is")
+        };
+        inputs.add_generation_prompt = false;
+        inputs.enable_thinking = false;
+        inputs.chat_template_kwargs["continue_final_message"] = "true";
+
+        auto params = common_chat_templates_apply(tmpls.get(), inputs);
+        if (string_ends_with(params.prompt, "<sep>")) {
+            throw std::runtime_error("Reka Edge continue_final_message unexpectedly closed the assistant turn");
+        }
+    }
+}
+
 // Test the developer role to system workaround with a simple mock template
 static void test_developer_role_to_system_workaround() {
     LOG_DBG("%s\n", __func__);
@@ -4256,6 +4405,7 @@ int main(int argc, char ** argv) {
         test_msgs_oaicompat_json_conversion();
         test_tools_oaicompat_json_conversion();
         test_developer_role_to_system_workaround();
+        test_reka_edge_common_path();
         test_template_output_peg_parsers(detailed_debug);
         std::cout << "\n[chat] All tests passed!" << '\n';
     }

@@ -225,6 +225,58 @@ static std::string normalize_newlines(const std::string & s) {
 #endif
 }
 
+static std::string read_file(const std::string & path) {
+    std::ifstream infile(path, std::ios::binary);
+    if (!infile) {
+        infile = std::ifstream("../" + path, std::ios::binary);
+    }
+    if (!infile) {
+        throw std::runtime_error("Could not open file: " + path);
+    }
+    return std::string(std::istreambuf_iterator<char>(infile), std::istreambuf_iterator<char>());
+}
+
+static void apply_common_template_overrides(const json & input, common_chat_templates_inputs & inputs) {
+    if (input.contains("add_generation_prompt")) {
+        inputs.add_generation_prompt = input.at("add_generation_prompt").get<bool>();
+    }
+    if (input.contains("enable_thinking")) {
+        inputs.enable_thinking = input.at("enable_thinking").get<bool>();
+    }
+    if (input.contains("continue_final_message")) {
+        inputs.chat_template_kwargs["continue_final_message"] = input.at("continue_final_message").dump();
+    }
+    if (input.contains("num_img_tokens")) {
+        inputs.chat_template_kwargs["num_img_tokens"] = input.at("num_img_tokens").dump();
+    }
+    if (input.contains("num_video_frames")) {
+        inputs.chat_template_kwargs["num_video_frames"] = input.at("num_video_frames").dump();
+    }
+    if (input.contains("chat_template_kwargs")) {
+        for (const auto & item : input.at("chat_template_kwargs").items()) {
+            inputs.chat_template_kwargs[item.key()] = item.value().dump();
+        }
+    }
+}
+
+static std::string format_using_common_json(
+            const std::string & template_str,
+            json input) {
+    auto tmpls = common_chat_templates_init(
+        /* model= */ nullptr,
+        template_str,
+        input.value("bos_token", "<s>"),
+        input.value("eos_token", "</s>"));
+
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.messages = common_chat_msgs_parse_oaicompat(input.value("messages", json::array()));
+    inputs.tools = common_chat_tools_parse_oaicompat(input.value("tools", json::array()));
+    apply_common_template_overrides(input, inputs);
+
+    return normalize_newlines(common_chat_templates_apply(tmpls.get(), inputs).prompt);
+}
+
 
 static std::string format_using_common(
             const std::string & template_str,
@@ -331,6 +383,164 @@ static common_chat_msg simple_msg(const std::string & role, const std::string & 
     msg.role = role;
     msg.content = content;
     return msg;
+}
+
+static void assert_string_equals(const std::string & label, const std::string & expected, const std::string & actual) {
+    if (expected != actual) {
+        std::cerr << "Mismatch in " << label << "\n";
+        std::cerr << "Expected:\n" << expected << "\n";
+        std::cerr << "Actual:\n" << actual << "\n";
+        assert(expected == actual);
+    }
+}
+
+static void run_reka_edge_oracle_tests() {
+    const std::string template_str = read_file("models/templates/Reka-Edge.jinja");
+
+    const json tool = {
+        {"type", "function"},
+        {"function", {
+            {"name", "lookup_weather"},
+            {"description", "Look up the weather."},
+            {"parameters", {
+                {"type", "object"},
+                {"properties", {
+                    {"city", {{"type", "string"}}}
+                }},
+                {"required", json::array({"city"})}
+            }}
+        }}
+    };
+
+    const std::vector<std::pair<std::string, json>> cases = {
+        {
+            "text_only",
+            {
+                {"messages", json::array({
+                    {{"role", "system"}, {"content", "Be brief."}},
+                    {{"role", "user"}, {"content", "Hello there"}},
+                })},
+                {"add_generation_prompt", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "typed_text_spacing",
+            {
+                {"messages", json::array({
+                    {{"role", "user"}, {"content", json::array({
+                        {{"type", "text"}, {"text", "Hello"}},
+                        {{"type", "text"}, {"text", "world"}},
+                        {{"type", "text"}, {"text", "again"}},
+                    })}},
+                })},
+                {"add_generation_prompt", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "tools_reasoning",
+            {
+                {"messages", json::array({
+                    {{"role", "system"}, {"content", "Use tools when needed."}},
+                    {{"role", "user"}, {"content", "What is the weather in Singapore?"}},
+                })},
+                {"tools", json::array({tool})},
+                {"add_generation_prompt", true},
+                {"enable_thinking", true},
+            }
+        },
+        {
+            "assistant_continue_final_message",
+            {
+                {"messages", json::array({
+                    {{"role", "user"}, {"content", "Continue this answer"}},
+                    {{"role", "assistant"}, {"content", "The first point is"}},
+                })},
+                {"add_generation_prompt", false},
+                {"continue_final_message", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "tool_response_history",
+            {
+                {"messages", json::array({
+                    {{"role", "user"}, {"content", "Run the lookup"}},
+                    {{"role", "assistant"}, {"content", ""},
+                     {"tool_calls", json::array({
+                        {{"type", "function"},
+                         {"function", {{"name", "lookup_weather"}, {"arguments", {{"city", "Singapore"}}}}}}
+                     })}},
+                    {{"role", "tool"}, {"name", "lookup_weather"}, {"tool_call_id", "call0"}, {"content", "Sunny, 31C"}},
+                })},
+                {"tools", json::array({tool})},
+                {"add_generation_prompt", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "image_placeholder",
+            {
+                {"messages", json::array({
+                    {{"role", "user"}, {"content", json::array({
+                        {{"type", "text"}, {"text", "Describe this"}},
+                        {{"type", "image_url"}},
+                    })}},
+                })},
+                {"add_generation_prompt", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "video_placeholder",
+            {
+                {"messages", json::array({
+                    {{"role", "user"}, {"content", json::array({
+                        {{"type", "video_url"}},
+                        {{"type", "text"}, {"text", "Summarize it"}},
+                    })}},
+                })},
+                {"add_generation_prompt", true},
+                {"enable_thinking", false},
+            }
+        },
+        {
+            "mixed_history",
+            {
+                {"messages", json::array({
+                    {{"role", "system"}, {"content", "Use tools and inspect media carefully."}},
+                    {{"role", "user"}, {"content", json::array({
+                        {{"type", "image_url"}},
+                        {{"type", "text"}, {"text", "What is shown?"}},
+                    })}},
+                    {{"role", "assistant"}, {"content", "I will inspect it."}, {"reasoning_content", "Need to inspect the image first."}},
+                    {{"role", "assistant"}, {"content", ""},
+                     {"tool_calls", json::array({
+                        {{"type", "function"},
+                         {"function", {{"name", "lookup_weather"}, {"arguments", {{"city", "Singapore"}}}}}}
+                     })}},
+                    {{"role", "tool"}, {"name", "lookup_weather"}, {"tool_call_id", "call1"}, {"content", "Cloudy"}},
+                    {{"role", "user"}, {"content", json::array({
+                        {{"type", "video_url"}},
+                        {{"type", "text"}, {"text", "And now summarize the clip"}},
+                    })}},
+                })},
+                {"tools", json::array({tool})},
+                {"add_generation_prompt", true},
+                {"enable_thinking", true},
+                {"num_img_tokens", 4},
+                {"num_video_frames", 3},
+            }
+        },
+    };
+
+    for (const auto & [name, input_case] : cases) {
+        json input = input_case;
+        auto expected = format_using_direct_engine(template_str, input)->as_string().str();
+        auto actual = format_using_common_json(template_str, input_case);
+        assert_string_equals("Reka oracle case: " + name, normalize_newlines(expected), actual);
+    }
 }
 
 int main_automated_tests(void) {
@@ -705,6 +915,8 @@ int main_automated_tests(void) {
             assert(false);
         }
     }
+
+    run_reka_edge_oracle_tests();
 
     std::cout << "\nOK: All tests passed successfully.\n";
 
