@@ -6,9 +6,9 @@
 #include "chat.h"
 
 namespace autoparser {
-struct templates_params;
+struct generation_params;
 }
 
 common_chat_params common_chat_params_init_reka_edge(
     const common_chat_template & tmpl,
-    const autoparser::templates_params & inputs);
+    const autoparser::generation_params & inputs);

@@ -30,8 +30,8 @@ static json reka_sort_tools_for_parsing(const json & tools) {
     return sorted;
 }
 
-common_chat_params common_chat_params_init_reka_edge(const common_chat_template &      tmpl,
-                                                     const autoparser::templates_params & inputs) {
+common_chat_params common_chat_params_init_reka_edge(const common_chat_template &        tmpl,
+                                                     const autoparser::generation_params & inputs) {
     common_chat_params data;
 
     data.prompt            = common_chat_template_direct_apply(tmpl, inputs);
@@ -54,11 +54,6 @@ common_chat_params common_chat_params_init_reka_edge(const common_chat_template 
 
     const bool has_tools = inputs.tools.is_array() && !inputs.tools.empty();
     const bool extract_reasoning = inputs.reasoning_format != COMMON_REASONING_FORMAT_NONE;
-    const bool thinking_forced_open =
-        extract_reasoning &&
-        inputs.enable_thinking &&
-        inputs.add_generation_prompt &&
-        (inputs.messages.empty() || inputs.messages.back().value("role", "") != "assistant");
     const bool include_grammar = has_tools && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_NONE;
     const json parser_tools = has_tools ? reka_sort_tools_for_parsing(inputs.tools) : inputs.tools;
 
@@ -72,20 +67,16 @@ common_chat_params common_chat_params_init_reka_edge(const common_chat_template 
         const std::string THINK_END   = "</think>";
         const std::string TOOL_CALL   = "<tool_call>";
 
+        auto generation_prompt = p.prefix(inputs.generation_prompt, THINK_START);
         auto end = p.end();
         auto reasoning = p.eps();
 
-        if (extract_reasoning) {
-            auto reasoning_body = p.reasoning(p.until_one_of({ THINK_END, TOOL_CALL }));
-            if (thinking_forced_open) {
-                reasoning = reasoning_body + p.optional(p.literal(THINK_END)) + p.space();
-            } else {
-                reasoning = p.optional(p.literal(THINK_START) + reasoning_body + p.optional(p.literal(THINK_END)) + p.space());
-            }
+        if (extract_reasoning && inputs.enable_thinking) {
+            reasoning = p.optional(THINK_START + p.reasoning(p.until(THINK_END)) + THINK_END);
         }
 
         if (!has_tools || inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_NONE) {
-            return reasoning + p.content(p.rest()) + end;
+            return generation_prompt + reasoning + p.content(p.rest()) + end;
         }
 
         auto single_tool = p.standard_json_tools(
@@ -100,7 +91,7 @@ common_chat_params common_chat_params_init_reka_edge(const common_chat_template 
         auto tool_calls = p.rule("tool-calls", p.repeat(single_tool + p.space(), min_calls, max_calls));
         auto content    = p.content(p.until(TOOL_CALL));
 
-        return reasoning + content + tool_calls + end;
+        return generation_prompt + reasoning + content + tool_calls + end;
     });
 
     data.additional_stops = { "<sep>" };

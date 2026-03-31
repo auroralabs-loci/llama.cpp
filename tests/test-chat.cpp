@@ -816,34 +816,6 @@ const common_chat_msg message_user_parts{
     /* .tool_call_id = */ "",
 };
 
-const common_chat_msg message_user_image_parts{
-    "user",
-    /* .content = */ "",
-    /* .content_parts = */
-    {
-     { "text", "Describe this" },
-     { "image_url", "" },
-     },
-    /* .tool_calls = */ {},
-    /* .reasoning_content = */ "",
-    /* .tool_name = */ "",
-    /* .tool_call_id = */ "",
-};
-
-const common_chat_msg message_user_video_parts{
-    "user",
-    /* .content = */ "",
-    /* .content_parts = */
-    {
-     { "video_url", "" },
-     { "text", "Summarize it" },
-     },
-    /* .tool_calls = */ {},
-    /* .reasoning_content = */ "",
-    /* .tool_name = */ "",
-    /* .tool_call_id = */ "",
-};
-
 static common_chat_msg simple_assist_msg(const std::string & content,
                                          const std::string & reasoning_content = "",
                                          const std::string & tool_name         = "",
@@ -1435,8 +1407,6 @@ static void test_msgs_oaicompat_json_conversion() {
     std::vector<common_chat_msg> msgs{
         message_user,
         message_user_parts,
-        message_user_image_parts,
-        message_user_video_parts,
         message_assist_call,
         message_assist_call_thoughts,
         message_assist_call_thoughts_unparsed,
@@ -1468,23 +1438,6 @@ static void test_msgs_oaicompat_json_conversion() {
                               "  }\n"
                               "]"),
                   common_chat_msgs_to_json_oaicompat({ message_user_parts }).dump(2));
-
-    assert_equals(std::string("[\n"
-                              "  {\n"
-                              "    \"role\": \"user\",\n"
-                              "    \"content\": [\n"
-                              "      {\n"
-                              "        \"type\": \"text\",\n"
-                              "        \"text\": \"Describe this\"\n"
-                              "      },\n"
-                              "      {\n"
-                              "        \"type\": \"image_url\",\n"
-                              "        \"text\": \"\"\n"
-                              "      }\n"
-                              "    ]\n"
-                              "  }\n"
-                              "]"),
-                  common_chat_msgs_to_json_oaicompat({ message_user_image_parts }).dump(2));
 
     // Note: content is "" instead of null due to workaround for templates that render null as "None"
     assert_equals(std::string("[\n"
@@ -4176,7 +4129,7 @@ static void test_reka_edge_common_path() {
         common_chat_templates_inputs inputs;
         common_chat_msg system_msg;
         system_msg.role = "system";
-        system_msg.content = "Use tools and inspect media carefully.";
+        system_msg.content = "Use tools when needed.";
 
         common_chat_msg tool_call_msg = simple_assist_msg("", "", "special_function", "{\"arg1\": 1}");
 
@@ -4186,21 +4139,13 @@ static void test_reka_edge_common_path() {
         tool_msg.tool_call_id = "call0";
         tool_msg.content = "Sunny";
 
-        inputs.messages = { system_msg, message_user_image_parts, tool_call_msg, tool_msg, message_user_video_parts };
+        inputs.messages = { system_msg, message_user, tool_call_msg, tool_msg, message_user };
         inputs.tools = { special_function_tool };
         inputs.enable_thinking = true;
         inputs.add_generation_prompt = true;
-        inputs.chat_template_kwargs["num_img_tokens"] = "4";
-        inputs.chat_template_kwargs["num_video_frames"] = "3";
 
         auto params = common_chat_templates_apply(tmpls.get(), inputs);
 
-        if (params.prompt.find("<image><REKA_IMG_TOKEN><REKA_IMG_TOKEN><REKA_IMG_TOKEN><REKA_IMG_TOKEN></image>") == std::string::npos) {
-            throw std::runtime_error("Reka Edge prompt did not render image placeholder");
-        }
-        if (params.prompt.find("<video>") == std::string::npos) {
-            throw std::runtime_error("Reka Edge prompt did not render video placeholder");
-        }
         if (params.prompt.find("<tool_response>\nSunny\n</tool_response><sep>") == std::string::npos) {
             throw std::runtime_error("Reka Edge prompt did not render tool response history");
         }

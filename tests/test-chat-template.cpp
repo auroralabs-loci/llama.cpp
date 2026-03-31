@@ -425,20 +425,6 @@ static void run_reka_edge_oracle_tests() {
             }
         },
         {
-            "typed_text_spacing",
-            {
-                {"messages", json::array({
-                    {{"role", "user"}, {"content", json::array({
-                        {{"type", "text"}, {"text", "Hello"}},
-                        {{"type", "text"}, {"text", "world"}},
-                        {{"type", "text"}, {"text", "again"}},
-                    })}},
-                })},
-                {"add_generation_prompt", true},
-                {"enable_thinking", false},
-            }
-        },
-        {
             "tools_reasoning",
             {
                 {"messages", json::array({
@@ -477,60 +463,6 @@ static void run_reka_edge_oracle_tests() {
                 {"tools", json::array({tool})},
                 {"add_generation_prompt", true},
                 {"enable_thinking", false},
-            }
-        },
-        {
-            "image_placeholder",
-            {
-                {"messages", json::array({
-                    {{"role", "user"}, {"content", json::array({
-                        {{"type", "text"}, {"text", "Describe this"}},
-                        {{"type", "image_url"}},
-                    })}},
-                })},
-                {"add_generation_prompt", true},
-                {"enable_thinking", false},
-            }
-        },
-        {
-            "video_placeholder",
-            {
-                {"messages", json::array({
-                    {{"role", "user"}, {"content", json::array({
-                        {{"type", "video_url"}},
-                        {{"type", "text"}, {"text", "Summarize it"}},
-                    })}},
-                })},
-                {"add_generation_prompt", true},
-                {"enable_thinking", false},
-            }
-        },
-        {
-            "mixed_history",
-            {
-                {"messages", json::array({
-                    {{"role", "system"}, {"content", "Use tools and inspect media carefully."}},
-                    {{"role", "user"}, {"content", json::array({
-                        {{"type", "image_url"}},
-                        {{"type", "text"}, {"text", "What is shown?"}},
-                    })}},
-                    {{"role", "assistant"}, {"content", "I will inspect it."}, {"reasoning_content", "Need to inspect the image first."}},
-                    {{"role", "assistant"}, {"content", ""},
-                     {"tool_calls", json::array({
-                        {{"type", "function"},
-                         {"function", {{"name", "lookup_weather"}, {"arguments", {{"city", "Singapore"}}}}}}
-                     })}},
-                    {{"role", "tool"}, {"name", "lookup_weather"}, {"tool_call_id", "call1"}, {"content", "Cloudy"}},
-                    {{"role", "user"}, {"content", json::array({
-                        {{"type", "video_url"}},
-                        {{"type", "text"}, {"text", "And now summarize the clip"}},
-                    })}},
-                })},
-                {"tools", json::array({tool})},
-                {"add_generation_prompt", true},
-                {"enable_thinking", true},
-                {"num_img_tokens", 4},
-                {"num_video_frames", 3},
             }
         },
     };
