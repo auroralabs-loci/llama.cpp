@@ -279,36 +279,32 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
     const auto & inputs      = ctx.inputs;
     bool         force_tools = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_REQUIRED;
 
+    auto until_suffix = p.rule("until-suffix", p.until(arguments.value_suffix));
+
     common_peg_parser tool_choice = p.choice();
 
     foreach_function(inputs.tools, [&](const json & tool) {
         const auto &          func       = tool.at("function");
         std::string           name       = func.at("name");
-        const auto &          params     = func.contains("parameters") ? func.at("parameters") : json::object();
+        auto                  params     = func.contains("parameters") ? func.at("parameters") : json::object();
         const auto &          properties = params.contains("properties") ? params.at("properties") : json::object();
         std::set<std::string> required;
+
+        auto schema_info = common_schema_info();
+        schema_info.resolve_refs(params);
 
         // Build parser for each argument, separating required and optional
         std::vector<common_peg_parser> required_parsers;
         std::vector<common_peg_parser> optional_parsers;
         for (const auto & [param_name, param_schema] : properties.items()) {
-            bool        is_required = required.find(param_name) != required.end();
-            std::string type        = "object";
-            auto        type_obj    = param_schema.contains("type") ? param_schema.at("type") : json::object();
-            if (type_obj.is_string()) {
-                type_obj.get_to(type);
-            } else if (type_obj.is_object()) {
-                if (type_obj.contains("type") && type_obj.at("type").is_string()) {
-                    type_obj.at("type").get_to(type);
-                }
-            }
+            bool is_required = required.find(param_name) != required.end();
 
             auto arg =
                 p.tool_arg(p.tool_arg_open(arguments.name_prefix + p.tool_arg_name(p.literal(param_name)) +
                                            arguments.name_suffix) +
                            arguments.value_prefix +
-                           (type == "string" ?
-                                p.tool_arg_string_value(p.schema(p.until(arguments.value_suffix),
+                           (schema_info.resolves_to_string(param_schema) ?
+                                p.tool_arg_string_value(p.schema(until_suffix,
                                                                  "tool-" + name + "-arg-" + param_name + "-schema",
                                                                  param_schema, true)) :
                                 p.tool_arg_json_value(p.schema(
@@ -405,7 +401,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
         if (!format.section_start.empty()) {
             tool_calls = p.trigger_rule("tool-calls",
                                         p.literal(format.section_start) + p.space() + tool_calls + p.space() +
-                                            (format.section_end.empty() ? p.end() : p.literal(format.section_end)));
+                                            (format.section_end.empty() ? p.eps() : p.literal(format.section_end)));
         }
     } else {
         std::string separator = ", ";  // Default
@@ -426,8 +422,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
 
     std::string trigger_marker       = !format.section_start.empty() ? format.section_start : format.per_call_start;
     auto        content_before_tools = trigger_marker.empty() ? p.eps() : p.until(trigger_marker);
-    return ctx.reasoning_parser + (force_tools ? p.eps() : p.optional(p.content(content_before_tools))) + tool_calls +
-           p.end();
+    return ctx.reasoning_parser + (force_tools ? p.eps() : p.optional(p.content(content_before_tools))) + tool_calls;
 }
 
 }  // namespace autoparser
