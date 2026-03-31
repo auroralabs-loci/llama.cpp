@@ -3056,7 +3056,7 @@ static std::string llama_decode_text(const std::string & text) {
             for (const auto c : utf8) {
                 decoded_text += format("%02x", (uint8_t) c);
             }
-            decoded_text += text + "]";
+            decoded_text += "]";
         }
     }
 
