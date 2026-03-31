@@ -1,6 +1,7 @@
 #include "llama-graph.h"
 
 #include "llama-impl.h"
+#include "llama-model.h"
 #include "llama-batch.h"
 #include "llama-cparams.h"
 
@@ -1041,6 +1042,67 @@ ggml_tensor * llm_graph_context::build_norm(
     }
 
     return cur;
+}
+
+
+llm_graph_qkv llm_graph_context::build_qkv(
+        const llama_layer & layer,
+              ggml_tensor * cur,
+                  int64_t   n_embd_head,
+                  int64_t   n_head,
+                  int64_t   n_head_kv,
+                      int   il) const {
+    const int64_t n_embd_q  = n_embd_head * n_head;
+    const int64_t n_embd_kv = n_embd_head * n_head_kv;
+
+    ggml_tensor * Qcur, * Kcur, * Vcur;
+
+    if (layer.wqkv) {
+        // fused QKV path
+        ggml_tensor * qkv = build_lora_mm(layer.wqkv, cur);
+        cb(qkv, "wqkv", il);
+        if (layer.bqkv) {
+            qkv = ggml_add(ctx0, qkv, layer.bqkv);
+            cb(qkv, "bqkv", il);
+        }
+        Qcur = ggml_view_3d(ctx0, qkv, n_embd_head, n_head,    n_tokens,
+            ggml_row_size(qkv->type, n_embd_head), qkv->nb[1], 0);
+        Kcur = ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens,
+            ggml_row_size(qkv->type, n_embd_head), qkv->nb[1],
+            ggml_row_size(qkv->type, n_embd_q));
+        Vcur = ggml_view_3d(ctx0, qkv, n_embd_head, n_head_kv, n_tokens,
+            ggml_row_size(qkv->type, n_embd_head), qkv->nb[1],
+            ggml_row_size(qkv->type, n_embd_q + n_embd_kv));
+    } else {
+        // separate Q/K/V path
+        Qcur = build_lora_mm(layer.wq, cur, layer.wq_s);
+        cb(Qcur, "Qcur", il);
+        if (layer.bq) {
+            Qcur = ggml_add(ctx0, Qcur, layer.bq);
+            cb(Qcur, "Qcur", il);
+        }
+        Kcur = build_lora_mm(layer.wk, cur, layer.wk_s);
+        cb(Kcur, "Kcur", il);
+        if (layer.bk) {
+            Kcur = ggml_add(ctx0, Kcur, layer.bk);
+            cb(Kcur, "Kcur", il);
+        }
+        Vcur = build_lora_mm(layer.wv, cur, layer.wv_s);
+        cb(Vcur, "Vcur", il);
+        if (layer.bv) {
+            Vcur = ggml_add(ctx0, Vcur, layer.bv);
+            cb(Vcur, "Vcur", il);
+        }
+        Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
+        Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+        Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+    }
+
+    cb(Qcur, "Qcur", il);
+    cb(Kcur, "Kcur", il);
+    cb(Vcur, "Vcur", il);
+
+    return { Qcur, Kcur, Vcur };
 }
 
 ggml_tensor * llm_graph_context::build_ffn(
