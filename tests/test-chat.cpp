@@ -2144,57 +2144,19 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
             .expect_reconstruction()
             .run();
 
-        // Test flexible optional argument ordering (2 required + 4 optional, reversed optional order)
+        // Test optional argument ordering (2 required + 4 optional)
         tst.test(
                "<tool_call>\n"
                "<function=tool_2req_4opt>\n"
                "<parameter=req1>\nhello\n</parameter>\n"
                "<parameter=req2>\n42\n</parameter>\n"
-               "<parameter=opt4>\n100\n</parameter>\n"
                "<parameter=opt2>\n200\n</parameter>\n"
+               "<parameter=opt4>\n100\n</parameter>\n"
                "</function>\n"
                "</tool_call>")
             .tools({ tool_2req_4opt })
             .expect_tool_calls({
-                { "tool_2req_4opt", R"({"req1": "hello", "req2": 42, "opt4": 100, "opt2": 200})", {} },
-            })
-            .expect_reconstruction()
-            .run();
-
-        // Test flexible optional argument ordering (2 required + 5 optional, reversed optional order)
-        tst.test(
-               "<tool_call>\n"
-               "<function=tool_2req_5opt>\n"
-               "<parameter=req1>\nworld\n</parameter>\n"
-               "<parameter=req2>\n7\n</parameter>\n"
-               "<parameter=opt5>\nlast\n</parameter>\n"
-               "<parameter=opt3>\nmiddle\n</parameter>\n"
-               "<parameter=opt1>\nfirst\n</parameter>\n"
-               "</function>\n"
-               "</tool_call>")
-            .tools({ tool_2req_5opt })
-            .expect_tool_calls({
-                { "tool_2req_5opt", R"({"req1": "world", "req2": 7, "opt5": "last", "opt3": "middle", "opt1": "first"})", {} },
-            })
-            .expect_reconstruction()
-            .run();
-
-        // Test flexible optional argument ordering (2 required + 5 optional, all 5 in shuffled order)
-        tst.test(
-               "<tool_call>\n"
-               "<function=tool_2req_5opt>\n"
-               "<parameter=req1>\ntest\n</parameter>\n"
-               "<parameter=req2>\n99\n</parameter>\n"
-               "<parameter=opt3>\nc\n</parameter>\n"
-               "<parameter=opt1>\na\n</parameter>\n"
-               "<parameter=opt5>\ne\n</parameter>\n"
-               "<parameter=opt4>\n4\n</parameter>\n"
-               "<parameter=opt2>\n2\n</parameter>\n"
-               "</function>\n"
-               "</tool_call>")
-            .tools({ tool_2req_5opt })
-            .expect_tool_calls({
-                { "tool_2req_5opt", R"({"req1": "test", "req2": 99, "opt3": "c", "opt1": "a", "opt5": "e", "opt4": 4, "opt2": 2})", {} },
+                { "tool_2req_4opt", R"({"req1": "hello", "req2": 42, "opt2": 200, "opt4": 100})", {} },
             })
             .expect_reconstruction()
             .run();

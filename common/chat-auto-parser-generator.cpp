@@ -293,9 +293,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
         auto schema_info = common_schema_info();
         schema_info.resolve_refs(params);
 
-        // Build parser for each argument, separating required and optional
-        std::vector<common_peg_parser> required_parsers;
-        std::vector<common_peg_parser> optional_parsers;
+        std::vector<common_peg_parser> args;
         for (const auto & [param_name, param_schema] : properties.items()) {
             bool is_required = required.find(param_name) != required.end();
 
@@ -312,31 +310,15 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
                                     p.space()) +
                            p.tool_arg_close(p.literal(arguments.value_suffix)));
 
-            auto named_arg = p.rule("tool-" + name + "-arg-" + param_name, arg);
-            if (is_required) {
-                required_parsers.push_back(named_arg);
-            } else {
-                optional_parsers.push_back(named_arg);
+            auto named_arg = p.repeat(p.rule("tool-" + name + "-arg-" + param_name, arg), is_required ? 1 : 0, 1);
+
+            if (!args.empty()) {
+                args.push_back(p.space());
             }
+            args.push_back(named_arg);
         }
 
-        // Build required arg sequence in definition order
-        common_peg_parser args_seq = p.eps();
-        for (size_t i = 0; i < required_parsers.size(); i++) {
-            if (i > 0) {
-                args_seq = args_seq + p.space();
-            }
-            args_seq = args_seq + required_parsers[i];
-        }
-
-        // Build optional args with flexible ordering
-        if (!optional_parsers.empty()) {
-            common_peg_parser any_opt = p.choice();
-            for (const auto & opt : optional_parsers) {
-                any_opt |= opt;
-            }
-            args_seq = args_seq + p.repeat(p.space() + any_opt, 0, -1);
-        }
+        common_peg_parser args_seq = p.sequence(args);
 
         // Build call_id parser based on position (if supported)
         common_peg_parser call_id_section = p.eps();
@@ -357,7 +339,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
             func_parser = p.atomic(p.tool_open(function.name_prefix + p.tool_name(p.literal(name)) + function.name_suffix) +
                 call_id_section) + p.space() + args_seq;
             matched_atomic = true;
-        } else if (!arguments.name_prefix.empty() && !required_parsers.empty()) {
+        } else if (!arguments.name_prefix.empty() && !required.empty()) {
             // Only peek for an arg tag when there are required args that must follow.
             // When all args are optional, the model may emit no arg tags at all (#20650).
             func_parser = p.atomic(p.tool_open(function.name_prefix + p.tool_name(p.literal(name)) + function.name_suffix) +
