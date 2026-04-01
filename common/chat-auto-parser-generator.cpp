@@ -335,7 +335,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
             for (const auto & opt : optional_parsers) {
                 any_opt |= opt;
             }
-            args_seq = args_seq + p.repeat(p.space() + any_opt, 0, (int) optional_parsers.size());
+            args_seq = args_seq + p.repeat(p.space() + any_opt, 0, -1);
         }
 
         // Build call_id parser based on position (if supported)
