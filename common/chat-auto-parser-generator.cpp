@@ -401,7 +401,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
         if (!format.section_start.empty()) {
             tool_calls = p.trigger_rule("tool-calls",
                                         p.literal(format.section_start) + p.space() + tool_calls + p.space() +
-                                            (format.section_end.empty() ? p.eps() : p.literal(format.section_end)));
+                                            (format.section_end.empty() ? p.end() : p.literal(format.section_end)));
         }
     } else {
         std::string separator = ", ";  // Default
@@ -422,7 +422,8 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
 
     std::string trigger_marker       = !format.section_start.empty() ? format.section_start : format.per_call_start;
     auto        content_before_tools = trigger_marker.empty() ? p.eps() : p.until(trigger_marker);
-    return ctx.reasoning_parser + (force_tools ? p.eps() : p.optional(p.content(content_before_tools))) + tool_calls;
+    return ctx.reasoning_parser + (force_tools ? p.eps() : p.optional(p.content(content_before_tools))) + tool_calls +
+           p.end();
 }
 
 }  // namespace autoparser
