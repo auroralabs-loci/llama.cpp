@@ -288,7 +288,11 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
         std::string           name       = func.at("name");
         auto                  params     = func.contains("parameters") ? func.at("parameters") : json::object();
         const auto &          properties = params.contains("properties") ? params.at("properties") : json::object();
+
         std::set<std::string> required;
+        if (params.contains("required")) {
+            params.at("required").get_to(required);
+        }
 
         auto schema_info = common_schema_info();
         schema_info.resolve_refs(params);
