@@ -1397,6 +1397,8 @@ struct clip_model_loader {
                     {
                         hparams.ffn_op = FFN_GELU_ERF;
                         log_ffn_op = "gelu_erf";
+                        hparams.image_resize_algo = RESIZE_ALGO_BICUBIC;
+                        hparams.image_resize_pad = false;
                         hparams.set_warmup_n_tokens(64);
                     } break;
                 case PROJECTOR_TYPE_GLM4V:
