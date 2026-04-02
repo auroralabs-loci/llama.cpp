@@ -28,8 +28,8 @@ upsert_mirror_pr() {
 
   echo "Creating mirrored PR targeting ${target_base}."
   local PR_BODY
-  PR_BODY=$(printf '> [!NOTE]\n> Source pull request: [%s#%s](https://github.com/%s/pull/%s)\n\n%s' \
-    "$UPSTREAM_REPO" "$num" "$UPSTREAM_REPO" "$num" "$body")
+  PR_BODY=$(printf '> [!NOTE]\n> Source pull request: [%s#%s](https://redirect.github.com/%s/pull/%s)\n<!-- loci-source-pr: %s/pull/%s -->\n\n%s' \
+    "$UPSTREAM_REPO" "$num" "$UPSTREAM_REPO" "$num" "$UPSTREAM_REPO" "$num" "$body")
 
   gh pr create --repo "$GITHUB_REPOSITORY" \
     --head "${pr_branch}" \

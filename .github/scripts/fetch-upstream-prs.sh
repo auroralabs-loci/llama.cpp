@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$0")"
 
-# Fetches and processes upstream PRs, outputting selected PRs to pulls.ndjson
+# Fetches and processes upstream PRs, outputting selected PRs to /tmp/pulls.ndjson
 #
 # Required environment variables:
 #   UPSTREAM_REPO         - upstream repo (e.g., "openssl/openssl")
@@ -39,9 +39,10 @@ if [ -n "${BASE_SHA:-}" ] && [ -z "${PR_URL:-}" ]; then
   exit 0
 fi
 
-> pulls.ndjson
+> /tmp/pulls.ndjson
 selected_pulls_count=0
 manual_mode=0
+max_pulls="${MAX_UPSTREAM_PRS:-2}"
 
 if [ -n "${PR_URL:-}" ]; then
   manual_mode=1
@@ -64,7 +65,6 @@ if [ -n "${PR_URL:-}" ]; then
 else
   lookback_days="${UPSTREAM_PR_LOOKBACK_DAYS:-7}"
   cutoff=$(date -u -d "${lookback_days} days ago" +%Y-%m-%dT%H:%M:%SZ)
-  max_pulls="${MAX_UPSTREAM_PRS:-10}"
   per_page=20
   page=1
 
@@ -151,6 +151,12 @@ while true; do
         fi
 
         git push origin "refs/heads/${pending_branch}:refs/heads/${pending_branch}" --force
+        selected_pulls_count=$((selected_pulls_count + 1))
+        echo "  PR #${pull_num}: added as pending (${selected_pulls_count})."
+        if [ "$selected_pulls_count" -ge "$max_pulls" ]; then
+          echo "Quota of ${max_pulls} reached, stopping."
+          break 2
+        fi
         continue
       else
         echo "  PR #${pull_num}: created/updated ${loci_main_branch}. Continuing with PR."
@@ -211,7 +217,7 @@ while true; do
         short_merge_base: $short_merge_base,
         loci_main_branch: $loci_main_branch,
         use_loci_base: $use_loci_base
-      }' <<<"$pr" >> pulls.ndjson
+      }' <<<"$pr" >> /tmp/pulls.ndjson
 
     selected_pulls_count=$((selected_pulls_count + 1))
     echo "  PR #${pull_num}: added (${selected_pulls_count})."

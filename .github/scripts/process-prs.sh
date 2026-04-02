@@ -45,4 +45,4 @@ while read -r line; do
   upsert_mirror_pr "$loci_pr_branch" "$target_base" "$num"
 
   echo "::endgroup::"
-done < pulls.ndjson
+done < /tmp/pulls.ndjson
