@@ -333,8 +333,9 @@ static void ggml_zendnn_compute_forward_mul_mat_id(
                               ne01,       // ldc
                               src0->type,
                               vec_dot_type,
-                              dst->type))
+                              dst->type)) {
             GGML_ABORT("%s: ZenDNN sgemm failed\n", __func__);
+        }
 
         // scatter output rows to destination
         #pragma omp parallel for num_threads(ctx->n_threads) schedule(static)
