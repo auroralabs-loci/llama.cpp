@@ -88,8 +88,8 @@ def test_responses_text_format(text_format: dict, n_predicted: int, re_content: 
         ],
         "text": {"format": text_format},
     })
-    
-    
+
+
     assert res.status_code == 200
     output_text = res.body["output"][0]["content"][0]["text"]
     assert match_regex(re_content, output_text)
