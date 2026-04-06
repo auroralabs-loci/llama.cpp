@@ -1,0 +1,48 @@
+name: Notify Insightful PRs
+on:
+  issue_comment:
+    types: [created,edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Mirror PR number to check'
+        required: true
+        type: string
+      comment_id:
+        description: 'Sticky comment ID'
+        required: true
+        type: string
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: notify-insightful-prs-${{ github.event.issue.number || github.event.inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    if: >-
+      vars.UPSTREAM_REPO != '' && (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.issue.pull_request != null &&
+          contains(github.event.comment.body, '<!-- loci-sticky:comment -->')
+        )
+      )
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Notify original PR author if summary is insightful
+        run: |
+          pr_number="${{ github.event.issue.number || github.event.inputs.pr_number }}"
+          comment_id="${{ github.event.comment.id || github.event.inputs.comment_id }}"
+          bash .github/scripts/notify-insightful-prs.sh "$pr_number" "$comment_id"
