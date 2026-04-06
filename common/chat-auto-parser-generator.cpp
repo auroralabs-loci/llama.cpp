@@ -279,34 +279,36 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
     const auto & inputs      = ctx.inputs;
     bool         force_tools = inputs.tool_choice == COMMON_CHAT_TOOL_CHOICE_REQUIRED;
 
-    auto until_suffix = p.rule("until-suffix", p.until(arguments.value_suffix));
-
     common_peg_parser tool_choice = p.choice();
 
     foreach_function(inputs.tools, [&](const json & tool) {
         const auto &          func       = tool.at("function");
         std::string           name       = func.at("name");
-        auto                  params     = func.contains("parameters") ? func.at("parameters") : json::object();
+        const auto &          params     = func.contains("parameters") ? func.at("parameters") : json::object();
         const auto &          properties = params.contains("properties") ? params.at("properties") : json::object();
-
         std::set<std::string> required;
-        if (params.contains("required")) {
-            params.at("required").get_to(required);
-        }
 
-        auto schema_info = common_schema_info();
-        schema_info.resolve_refs(params);
-
-        std::vector<common_peg_parser> args;
+        // Build parser for each argument, separating required and optional
+        std::vector<common_peg_parser> required_parsers;
+        std::vector<common_peg_parser> optional_parsers;
         for (const auto & [param_name, param_schema] : properties.items()) {
-            bool is_required = required.find(param_name) != required.end();
+            bool        is_required = required.find(param_name) != required.end();
+            std::string type        = "object";
+            auto        type_obj    = param_schema.contains("type") ? param_schema.at("type") : json::object();
+            if (type_obj.is_string()) {
+                type_obj.get_to(type);
+            } else if (type_obj.is_object()) {
+                if (type_obj.contains("type") && type_obj.at("type").is_string()) {
+                    type_obj.at("type").get_to(type);
+                }
+            }
 
             auto arg =
                 p.tool_arg(p.tool_arg_open(arguments.name_prefix + p.tool_arg_name(p.literal(param_name)) +
                                            arguments.name_suffix) +
                            arguments.value_prefix +
-                           (schema_info.resolves_to_string(param_schema) ?
-                                p.tool_arg_string_value(p.schema(until_suffix,
+                           (type == "string" ?
+                                p.tool_arg_string_value(p.schema(p.until(arguments.value_suffix),
                                                                  "tool-" + name + "-arg-" + param_name + "-schema",
                                                                  param_schema, true)) :
                                 p.tool_arg_json_value(p.schema(
@@ -314,15 +316,31 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
                                     p.space()) +
                            p.tool_arg_close(p.literal(arguments.value_suffix)));
 
-            auto named_arg = p.repeat(p.rule("tool-" + name + "-arg-" + param_name, arg), is_required ? 1 : 0, 1);
-
-            if (!args.empty()) {
-                args.push_back(p.space());
+            auto named_arg = p.rule("tool-" + name + "-arg-" + param_name, arg);
+            if (is_required) {
+                required_parsers.push_back(named_arg);
+            } else {
+                optional_parsers.push_back(named_arg);
             }
-            args.push_back(named_arg);
         }
 
-        common_peg_parser args_seq = p.sequence(args);
+        // Build required arg sequence in definition order
+        common_peg_parser args_seq = p.eps();
+        for (size_t i = 0; i < required_parsers.size(); i++) {
+            if (i > 0) {
+                args_seq = args_seq + p.space();
+            }
+            args_seq = args_seq + required_parsers[i];
+        }
+
+        // Build optional args with flexible ordering
+        if (!optional_parsers.empty()) {
+            common_peg_parser any_opt = p.choice();
+            for (const auto & opt : optional_parsers) {
+                any_opt |= opt;
+            }
+            args_seq = args_seq + p.repeat(p.space() + any_opt, 0, -1);
+        }
 
         // Build call_id parser based on position (if supported)
         common_peg_parser call_id_section = p.eps();
@@ -343,7 +361,7 @@ common_peg_parser analyze_tools::build_tool_parser_tag_tagged(parser_build_conte
             func_parser = p.atomic(p.tool_open(function.name_prefix + p.tool_name(p.literal(name)) + function.name_suffix) +
                 call_id_section) + p.space() + args_seq;
             matched_atomic = true;
-        } else if (!arguments.name_prefix.empty() && !required.empty()) {
+        } else if (!arguments.name_prefix.empty() && !required_parsers.empty()) {
             // Only peek for an arg tag when there are required args that must follow.
             // When all args are optional, the model may emit no arg tags at all (#20650).
             func_parser = p.atomic(p.tool_open(function.name_prefix + p.tool_name(p.literal(name)) + function.name_suffix) +
