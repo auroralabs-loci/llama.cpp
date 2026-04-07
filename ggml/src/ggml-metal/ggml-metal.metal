@@ -1110,6 +1110,14 @@ kernel void kernel_unary_impl(
         if (FC_OP == OP_UNARY_NUM_TRUNC) {
             dst_ptr[i0] = (T) trunc(x);
         }
+
+        if (FC_OP == OP_UNARY_NUM_XIELU) {
+            // slope = alpha_n, scale = alpha_p, bias = beta, val = eps
+            const TC pos = args.scale * x * x + args.bias * x;
+            const TC min_x_eps = fmin(x, (TC) args.val);
+            const TC neg = (exp(min_x_eps) - 1 - x) * args.slope + args.bias * x;
+            dst_ptr[i0] = (T) select(neg, pos, x > (TC) 0);
+        }
     }
 
 #undef FC_OP

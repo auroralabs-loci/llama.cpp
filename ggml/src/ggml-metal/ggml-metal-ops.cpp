@@ -268,6 +268,7 @@ static int ggml_metal_op_encode_impl(ggml_metal_op_t ctx, int idx) {
                 n_fuse = ggml_metal_op_concat(ctx, idx);
             } break;
         case GGML_OP_ADD:
+        case GGML_OP_ADD1:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
         case GGML_OP_DIV:
@@ -785,6 +786,14 @@ int ggml_metal_op_unary(ggml_metal_op_t ctx, int idx) {
     if (op->op == GGML_OP_CLAMP) {
         args.min = ggml_get_op_params_f32(op, 0);
         args.max = ggml_get_op_params_f32(op, 1);
+    }
+
+    if (op->op == GGML_OP_UNARY && ggml_get_unary_op(op) == GGML_UNARY_OP_XIELU) {
+        // reuse: slope = alpha_n, scale = alpha_p, bias = beta, val = eps
+        args.slope = ggml_get_op_params_f32(op, 1);
+        args.scale = ggml_get_op_params_f32(op, 2);
+        args.bias  = ggml_get_op_params_f32(op, 3);
+        args.val   = ggml_get_op_params_f32(op, 4);
     }
 
     auto pipeline = ggml_metal_library_get_pipeline_unary(lib, op);
