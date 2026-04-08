@@ -305,8 +305,8 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
         return false;
     }
 
-    // Q1_0 requires MMA (Turing+) — no DP4A fallback path
-    if (type == GGML_TYPE_Q1_0 && !turing_mma_available(cc)) {
+    // Q1_0 requires MMA — no DP4A fallback path
+    if (type == GGML_TYPE_Q1_0 && !turing_mma_available(cc) && !amd_mfma_available(cc) && !amd_wmma_available(cc)) {
         return false;
     }
 

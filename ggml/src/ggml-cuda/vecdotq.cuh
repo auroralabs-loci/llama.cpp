@@ -109,44 +109,6 @@ static __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t v) {
 #define VDR_Q1_0_Q8_1_MMVQ 1  // Process one 32-element chunk at a time for parallelism
 #define VDR_Q1_0_Q8_1_MMQ  4  // Q1_0 has 128 bits (4 ints) per block
 
-template <int vdr> static __device__ __forceinline__ float vec_dot_q1_0_q8_1_impl(
-    const int * v, const int * u, const float & d1, const half2 & ds8) {
-
-    int sumi = 0;
-
-#pragma unroll
-    for (int i = 0; i < vdr; ++i) {
-        const int vi = v[i];
-
-        // Unpack 32 bits into 32 signed values (-1 or +1)
-        // Each bit: 0 -> -1, 1 -> +1
-        int vi_bytes[8];
-
-#pragma unroll
-        for (int j = 0; j < 8; ++j) {
-            const int shift = j * 4;
-            const int bits4 = (vi >> shift) & 0x0F;
-
-            const int b0 = (bits4 & 0x01) ? 1 : -1;
-            const int b1 = (bits4 & 0x02) ? 1 : -1;
-            const int b2 = (bits4 & 0x04) ? 1 : -1;
-            const int b3 = (bits4 & 0x08) ? 1 : -1;
-
-            vi_bytes[j] = (b0 & 0xFF) | ((b1 & 0xFF) << 8) | ((b2 & 0xFF) << 16) | ((b3 & 0xFF) << 24);
-        }
-
-#pragma unroll
-        for (int j = 0; j < 8; ++j) {
-            sumi = ggml_cuda_dp4a(vi_bytes[j], u[8*i + j], sumi);
-        }
-    }
-
-    const float2 ds8f = __half22float2(ds8);
-
-    // Q1_0 is symmetric (no offset), so we just multiply by scales
-    return d1 * ds8f.x * sumi;
-}
-
 #define VDR_Q4_0_Q8_1_MMVQ 2
 #define VDR_Q4_0_Q8_1_MMQ  4
 
