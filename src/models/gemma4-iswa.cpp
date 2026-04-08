@@ -283,12 +283,9 @@ ggml_tensor * llm_build_gemma4_iswa::build_inp_per_layer() {
         // TODO: verify if this is the correct behavior in transformers implementation
         const int64_t embd_size = model.per_layer_tok_embd->ne[0];  // n_embd_per_layer * n_layer
 
-        // Extract and dequantize padding token embedding (row 0).
-        // PyTorch replaces multimodal IDs with pad_token_id before lookup,
-        // then ScaledWordEmbedding scales by sqrt(n_embd_per_layer).
+        // Extract and dequantize padding token embedding (row 0)
         ggml_tensor * padding = ggml_view_1d(ctx0, model.per_layer_tok_embd, embd_size, 0);
         inp_per_layer = ggml_cast(ctx0, padding, GGML_TYPE_F32);
-        inp_per_layer = ggml_scale(ctx0, inp_per_layer, sqrtf((float) n_embd_per_layer));
 
         // Reshape to [n_embd_per_layer, n_layer, 1]
         inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_per_layer, n_layer, 1);
