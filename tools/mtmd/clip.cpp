@@ -2862,8 +2862,6 @@ int clip_n_output_tokens_x(const struct clip_ctx * ctx, struct clip_image_f32 * 
             return (img->nx / params.patch_size) / 2;
         case PROJECTOR_TYPE_STEP3VL:
             return img->nx / (params.patch_size * params.n_merge);
-        case PROJECTOR_TYPE_YASA2:
-            return 8;
         default:
             break;
     }
@@ -2883,8 +2881,6 @@ int clip_n_output_tokens_y(const struct clip_ctx * ctx, struct clip_image_f32 * 
             return (img->ny / params.patch_size) / 2;
         case PROJECTOR_TYPE_STEP3VL:
             return img->ny / (params.patch_size * params.n_merge);
-        case PROJECTOR_TYPE_YASA2:
-            return 8;
         default:
             break;
     }

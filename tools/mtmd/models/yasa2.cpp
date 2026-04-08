@@ -188,7 +188,6 @@ ggml_cgraph * clip_graph_yasa2::build() {
     tokens = ggml_permute(ctx0, tokens, 1, 0, 2, 3);
     tokens = ggml_cont(ctx0, tokens);
     cb(tokens, "yasa2_tokens", -1);
-    cb(tokens, "yasa2_tokens_pos", -1);
 
     GGML_ASSERT(model.mm_0_w && model.mm_2_w);
     ggml_tensor * embeddings = build_ffn(
