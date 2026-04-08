@@ -10,8 +10,7 @@ static ggml_tensor * add_channel_bias(
     if (!b_c) {
         return x_whcb;
     }
-    ggml_tensor * bc = ggml_cast(ctx0, b_c, x_whcb->type);
-    ggml_tensor * b4 = ggml_reshape_4d(ctx0, bc, 1, 1, bc->ne[0], 1);
+    ggml_tensor * b4 = ggml_reshape_4d(ctx0, b_c, 1, 1, b_c->ne[0], 1);
     b4 = ggml_repeat(ctx0, b4, x_whcb);
     return ggml_add(ctx0, x_whcb, b4);
 }
@@ -23,8 +22,7 @@ static ggml_tensor * mul_channel_weight(
     if (!w_c) {
         return x_whcb;
     }
-    ggml_tensor * wc = ggml_cast(ctx0, w_c, x_whcb->type);
-    ggml_tensor * w4 = ggml_reshape_4d(ctx0, wc, 1, 1, wc->ne[0], 1);
+    ggml_tensor * w4 = ggml_reshape_4d(ctx0, w_c, 1, 1, w_c->ne[0], 1);
     w4 = ggml_repeat(ctx0, w4, x_whcb);
     return ggml_mul(ctx0, x_whcb, w4);
 }
@@ -33,8 +31,7 @@ ggml_tensor * clip_graph_yasa2::layer_norm_channels(ggml_tensor * inp, ggml_tens
     // Match HF ConvNextLayerNorm(channels_first):
     // u = mean_c(x), s = mean_c((x-u)^2), x = (x-u)/sqrt(s+eps)
     // cast back to input dtype before affine.
-    ggml_tensor * cur = ggml_cast(ctx0, inp, GGML_TYPE_F32);
-    cur = ggml_permute(ctx0, cur, 2, 1, 0, 3); // [W,H,C,B] -> [C,H,W,B]
+    ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3); // [W,H,C,B] -> [C,H,W,B]
     cur = ggml_cont(ctx0, cur);
 
     ggml_tensor * u = ggml_mean(ctx0, cur);                 // [1,H,W,B]
@@ -50,8 +47,6 @@ ggml_tensor * clip_graph_yasa2::layer_norm_channels(ggml_tensor * inp, ggml_tens
     ggml_tensor * xhat = ggml_div(ctx0, xm, s);             // [C,H,W,B]
     xhat = ggml_permute(ctx0, xhat, 2, 1, 0, 3);            // [W,H,C,B]
     xhat = ggml_cont(ctx0, xhat);
-    xhat = ggml_cast(ctx0, xhat, inp->type);                // HF casts back before affine
-
     xhat = mul_channel_weight(ctx0, xhat, w);
     xhat = add_channel_bias(ctx0, xhat, b);
     return xhat;
@@ -67,8 +62,7 @@ ggml_tensor * clip_graph_yasa2::convnext_grn(ggml_tensor * inp, ggml_tensor * w,
     const int64_t bdim = inp->ne[3];
 
     // Keep GRN math in fp32 for stability; fp16/bf16 accumulation can drift.
-    ggml_tensor * inp_f = ggml_cast(ctx0, inp, GGML_TYPE_F32);
-    ggml_tensor * sq = ggml_mul(ctx0, inp_f, inp_f);
+    ggml_tensor * sq = ggml_mul(ctx0, inp, inp);
     ggml_tensor * sq_flat = ggml_reshape_4d(ctx0, sq, wdim * hdim, cdim, 1, bdim);   // [WH,C,1,B]
     ggml_tensor * gx = ggml_sum_rows(ctx0, sq_flat);                                   // [1,C,1,B]
     gx = ggml_sqrt(ctx0, gx);                                                           // [1,C,1,B]
@@ -82,22 +76,19 @@ ggml_tensor * clip_graph_yasa2::convnext_grn(ggml_tensor * inp, ggml_tensor * w,
     ggml_tensor * nx = ggml_div(ctx0, gx, gx_mean_rep);                                // [1,C,1,B]
     nx = ggml_permute(ctx0, nx, 0, 2, 1, 3);                                            // [1,1,C,B]
     nx = ggml_cont(ctx0, nx);
-    nx = ggml_repeat(ctx0, nx, inp_f);                                                   // [W,H,C,B]
+    nx = ggml_repeat(ctx0, nx, inp);                                                      // [W,H,C,B]
 
-    ggml_tensor * xnx = ggml_mul(ctx0, inp_f, nx);
+    ggml_tensor * xnx = ggml_mul(ctx0, inp, nx);
     xnx = mul_channel_weight(ctx0, xnx, w);
     xnx = add_channel_bias(ctx0, xnx, b);
-    ggml_tensor * out = ggml_add(ctx0, inp_f, xnx);
-    return ggml_cast(ctx0, out, inp->type);
+    return ggml_add(ctx0, inp, xnx);
 }
 
 ggml_cgraph * clip_graph_yasa2::build() {
     ggml_tensor * cur = build_inp_raw();
 
     // Patch embedding Conv2d(kernel=4, stride=4)
-    ggml_tensor * patch_w = ggml_cast(ctx0, model.yasa_patch_w, GGML_TYPE_F32);
-    ggml_tensor * patch_inp = ggml_cast(ctx0, cur, GGML_TYPE_F32);
-    cur = ggml_conv_2d(ctx0, patch_w, patch_inp, patch_size, patch_size, 0, 0, 1, 1);
+    cur = ggml_conv_2d(ctx0, model.yasa_patch_w, cur, patch_size, patch_size, 0, 0, 1, 1);
     cur = add_channel_bias(ctx0, cur, model.yasa_patch_b);
     cur = ggml_cont(ctx0, cur);
     ggml_set_name(cur, "yasa2_patch_conv_out");
@@ -138,8 +129,7 @@ ggml_cgraph * clip_graph_yasa2::build() {
 
             tok = ggml_mul_mat(ctx0, blk.pw1_w, tok);                         // [4C,T,B]
             if (blk.pw1_b) {
-                ggml_tensor * b1 = ggml_cast(ctx0, blk.pw1_b, tok->type);
-                b1 = ggml_reshape_3d(ctx0, b1, b1->ne[0], 1, 1);             // [4C,1,1]
+                ggml_tensor * b1 = ggml_reshape_3d(ctx0, blk.pw1_b, blk.pw1_b->ne[0], 1, 1); // [4C,1,1]
                 b1 = ggml_repeat(ctx0, b1, tok);
                 tok = ggml_add(ctx0, tok, b1);
             }
@@ -155,8 +145,7 @@ ggml_cgraph * clip_graph_yasa2::build() {
 
             tok = ggml_mul_mat(ctx0, blk.pw2_w, tok);                        // [C,T,B]
             if (blk.pw2_b) {
-                ggml_tensor * b2 = ggml_cast(ctx0, blk.pw2_b, tok->type);
-                b2 = ggml_reshape_3d(ctx0, b2, b2->ne[0], 1, 1);             // [C,1,1]
+                ggml_tensor * b2 = ggml_reshape_3d(ctx0, blk.pw2_b, blk.pw2_b->ne[0], 1, 1); // [C,1,1]
                 b2 = ggml_repeat(ctx0, b2, tok);
                 tok = ggml_add(ctx0, tok, b2);
             }
@@ -180,7 +169,6 @@ ggml_cgraph * clip_graph_yasa2::build() {
         const int64_t n_tokens = model.yasa_vision_pos_embed->ne[1];
         ggml_tensor * pos = ggml_reshape_3d(ctx0, model.yasa_vision_pos_embed, (int) n_ch, (int) n_tokens, 1);
         pos = ggml_cont(ctx0, pos);
-        pos = ggml_cast(ctx0, pos, tokens_pre->type);
         pos = ggml_repeat(ctx0, pos, tokens_pre);
         tokens_pre = ggml_add(ctx0, tokens_pre, pos);
     }
