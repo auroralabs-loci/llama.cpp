@@ -4,7 +4,6 @@ static __device__ __forceinline__ void dequantize_q1_0(const void * vx, const in
     const block_q1_0 * x = (const block_q1_0 *) vx;
 
     const float d = x[ib].d;
-    const float neg_d = -d;
 
     const int bit_index_0 = iqs;
     const int bit_index_1 = iqs + 1;

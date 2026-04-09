@@ -187,6 +187,7 @@ static constexpr __device__ int get_mmq_y_device() {
 
 static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(ggml_type type, int mmq_y) {
     switch (type) {
+        case GGML_TYPE_Q1_0:    return MMQ_DP4A_TXS_Q8_0;
         case GGML_TYPE_Q4_0:    return MMQ_DP4A_TXS_Q4_0;
         case GGML_TYPE_Q4_1:    return MMQ_DP4A_TXS_Q4_1;
         case GGML_TYPE_Q5_0:    return MMQ_DP4A_TXS_Q8_0;
@@ -307,15 +308,17 @@ static constexpr __device__ int mmq_get_nwarps_device() {
 
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q1_0(
     const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
-#if !(defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE))
-    GGML_UNUSED_VARS(x, x_tile, kbx0, i_max, stride, mmq_y, need_check);
-    NO_DEVICE_CODE;
-#else
     constexpr int nwarps = mmq_get_nwarps_device();
     constexpr int warp_size = ggml_cuda_get_physical_warp_size();
 
+#if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + 2*MMQ_TILE_NE_K);
+#else
+    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    int   * x_qs = (int   *)  x_tile;
+    float * x_df = (float *) (x_qs + txs.qs);
+#endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
 
     constexpr int blocks_per_iter = MMQ_ITER_K / QK1_0;
     constexpr int threads_per_row = blocks_per_iter * QI1_0;
@@ -355,7 +358,11 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
         const int dst_offset = kbx*(scale_entries_per_block*QI8_0) + kqsx*QI8_0;
 #pragma unroll
         for (int j = 0; j < 8; ++j) {
+#if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
             x_qs[i*MMQ_MMA_TILE_X_K_Q8_0 + dst_offset + j] = unpacked_bytes[j];
+#else
+            x_qs[i*(2*MMQ_TILE_NE_K + 1) + dst_offset + j] = unpacked_bytes[j];
+#endif
         }
     }
 
@@ -372,18 +379,12 @@ template <int mmq_y, bool need_check> static __device__ __forceinline__ void loa
 
         const block_q1_0 * bxi = (const block_q1_0 *) x + kbx0 + i*stride + scale_block;
 
+#if defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
         x_df[i*MMQ_MMA_TILE_X_K_Q8_0 + ksx] = bxi->d;
+#else
+        x_df[i*(2*MMQ_TILE_NE_K/QI8_0) + i/(QI8_0/2) + ksx] = bxi->d;
+#endif
     }
-#endif // defined(AMD_MFMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE)
-}
-
-template <int mmq_x, int mmq_y>
-static __device__ __forceinline__ void vec_dot_q1_mmq_dp4a_disabled(
-    const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
-    // Q1_0 intentionally targets the MMA path only.
-    // If DP4A support is needed later for older GPUs, it should be reintroduced and validated separately.
-    GGML_UNUSED_VARS(x, y, sum, k00, mmq_x, mmq_y);
-    NO_DEVICE_CODE;
 }
 
 template <int mmq_y, bool need_check> static __device__ __forceinline__ void load_tiles_q4_0(
@@ -3363,7 +3364,7 @@ struct mmq_type_traits<mmq_x, mmq_y, need_check, GGML_TYPE_Q1_0> {
     static constexpr int              vdr          = VDR_Q1_0_Q8_1_MMQ;
     static constexpr load_tiles_mmq_t load_tiles   = load_tiles_q1_0<mmq_y, need_check>;
     static constexpr vec_dot_mmq_t    vec_dot_mma  = vec_dot_q8_0_q8_1_mma<mmq_x, mmq_y, MMQ_Q8_1_DS_LAYOUT_D4>;
-    static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q1_mmq_dp4a_disabled<mmq_x, mmq_y>;
+    static constexpr vec_dot_mmq_t    vec_dot_dp4a = vec_dot_q8_0_q8_1_dp4a<mmq_x, mmq_y>;
 };
 
 template <int mmq_x, int mmq_y, bool need_check>
