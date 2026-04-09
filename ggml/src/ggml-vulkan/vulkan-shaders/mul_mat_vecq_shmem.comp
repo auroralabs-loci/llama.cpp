@@ -1,0 +1,329 @@
+#version 450
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+#define MMQ
+#define B_TYPE block_q8_1_x4
+
+#define USE_COALESCED_LOADS
+
+#include "mul_mat_vec_base.glsl"
+
+layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
+
+#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4)
+#define K_PER_ITER 8
+#elif defined(DATA_A_QUANT_K)
+#define K_PER_ITER 16
+#elif defined(DATA_A_IQ1_S) || defined(DATA_A_IQ1_M)
+#define K_PER_ITER 32
+#else
+#error unimplemented
+#endif
+
+uint a_offset, b_offset, d_offset;
+
+int32_t cache_b_qs[K_PER_ITER / 4];
+vec2 cache_b_ds;
+
+// =====================================================================
+// Tiling constants
+// =====================================================================
+
+#define SHMEM_THREADS_PER_BLOCK (QUANT_K / K_PER_ITER)
+#define SHMEM_BLOCKS_PER_TILE (BLOCK_SIZE / SHMEM_THREADS_PER_BLOCK)
+#define SHMEM_TILE_K (SHMEM_BLOCKS_PER_TILE * QUANT_K)
+
+// Block byte sizes and field byte offsets are defined in types.glsl
+// (A_BLOCK_SIZE, A_BLOCK_OFFSET_D, A_BLOCK_OFFSET_QS, etc.)
+
+// =====================================================================
+// Decoded quant data in shared memory (per-thread, no cross-thread access)
+// =====================================================================
+
+#define DECODED_STRIDE (SHMEM_BLOCKS_PER_TILE * (QUANT_K / 4))
+shared int32_t shmem_decoded[NUM_ROWS * DECODED_STRIDE];
+
+// =====================================================================
+// Per-thread scale arrays (registers)
+// =====================================================================
+
+#if defined(DATA_A_Q4_0) || defined(DATA_A_Q5_0) || defined(DATA_A_Q8_0) || defined(DATA_A_MXFP4)
+float local_scale[NUM_ROWS];
+#elif defined(DATA_A_Q4_1) || defined(DATA_A_Q5_1)
+vec2 local_scale2[NUM_ROWS];
+#elif defined(DATA_A_Q2_K)
+uint local_scale_byte[NUM_ROWS];
+vec2 local_dm[NUM_ROWS];
+#elif defined(DATA_A_Q3_K) || defined(DATA_A_Q6_K)
+float local_d_scale[NUM_ROWS];
+#elif defined(DATA_A_Q4_K) || defined(DATA_A_Q5_K)
+vec2 local_dm_scale[NUM_ROWS];
+#elif defined(DATA_A_IQ1_S)
+vec2 local_iq_dm[NUM_ROWS];
+#elif defined(DATA_A_IQ1_M)
+float local_iq_dl[NUM_ROWS * 4];
+float local_iq_dl_delta[NUM_ROWS * 4];
+#endif
+
+#include "mul_mat_vecq_funcs.glsl"
+
+// =====================================================================
+// Decode: call repack/get_scale helpers, write to shmem + local arrays
+// =====================================================================
+
+void decode_tile_element(uint first_block, uint ib, uint iqs, uint decoded_base, uint n) {
+#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4)
+    const uint ib_abs = first_block + ib;
+#if defined(DATA_A_Q8_0)
+    shmem_decoded[decoded_base    ] = repack(ib_abs, iqs * 2);
+    shmem_decoded[decoded_base + 1] = repack(ib_abs, iqs * 2 + 1);
+#else
+    const i32vec2 qs = repack(ib_abs, iqs);
+    shmem_decoded[decoded_base    ] = qs.x;
+    shmem_decoded[decoded_base + 1] = qs.y;
+#endif
+#if defined(DATA_A_Q4_0) || defined(DATA_A_Q5_0) || defined(DATA_A_Q8_0) || defined(DATA_A_MXFP4)
+    local_scale[n] = get_dm(ib_abs);
+#elif defined(DATA_A_Q4_1) || defined(DATA_A_Q5_1)
+    local_scale2[n] = get_dm(ib_abs);
+#endif
+
+#elif defined(DATA_A_QUANT_K) || defined(DATA_A_IQ1_S) || defined(DATA_A_IQ1_M)
+    const uint ib_abs = first_block * (QUANT_K / QUANT_K_Q8_1) + ib;
+
+#if defined(DATA_A_Q2_K)
+    const i32vec4 qs = repack4(ib_abs, iqs * 4);
+    [[unroll]] for (uint k = 0; k < 4; k++)
+        shmem_decoded[decoded_base + k] = qs[k];
+    local_scale_byte[n] = get_scale(ib_abs, iqs * 4);
+    local_dm[n] = get_dm(ib_abs);
+
+#elif defined(DATA_A_Q3_K) || defined(DATA_A_Q6_K)
+    const i32vec4 qs = repack4(ib_abs, iqs * 4);
+    [[unroll]] for (uint k = 0; k < 4; k++)
+        shmem_decoded[decoded_base + k] = qs[k];
+    local_d_scale[n] = get_d_scale(ib_abs, iqs * 4);
+
+#elif defined(DATA_A_Q4_K) || defined(DATA_A_Q5_K)
+    const i32vec4 qs = repack4(ib_abs, iqs * 4);
+    [[unroll]] for (uint k = 0; k < 4; k++)
+        shmem_decoded[decoded_base + k] = qs[k];
+    local_dm_scale[n] = get_dm_scale(ib_abs, iqs * 4);
+
+#elif defined(DATA_A_IQ1_S)
+    i32vec4 out0, out1;
+    repack8(ib_abs / 8, (ib_abs % 8) * 32, out0, out1);
+    shmem_decoded[decoded_base    ] = out0.x; shmem_decoded[decoded_base + 1] = out0.y;
+    shmem_decoded[decoded_base + 2] = out0.z; shmem_decoded[decoded_base + 3] = out0.w;
+    shmem_decoded[decoded_base + 4] = out1.x; shmem_decoded[decoded_base + 5] = out1.y;
+    shmem_decoded[decoded_base + 6] = out1.z; shmem_decoded[decoded_base + 7] = out1.w;
+    local_iq_dm[n] = get_dm(ib_abs / 8, (ib_abs % 8) * 32);
+
+#elif defined(DATA_A_IQ1_M)
+    const uint ib_k = ib_abs / 8;
+    const uint iqs_k = (ib_abs % 8) * 32;
+    const uint ib32 = iqs_k / 32;
+    const float d = get_d(ib_k);
+    const uint qs32 = get_qs32(ib_k, iqs_k);
+    const uint qh16 = get_qh16(ib_k, iqs_k);
+    const uint sc = get_sc16(ib_k, iqs_k);
+    [[unroll]] for (uint l = 0; l < 4; ++l) {
+        const uint ib16 = 2 * ib32 + l / 2;
+        const float dl = d * (2 * bitfieldExtract(sc, 3 * int(ib16 & 3), 3) + 1);
+        const uint qhl = qh16 >> (4 * l);
+        const uint qsl = (qs32 >> (8 * l)) & 0xFFu;
+        const float delta = ((qhl & 8u) != 0) ? -IQ1M_DELTA : IQ1M_DELTA;
+        const int32_t grid = int32_t(iq1s_grid_gpu[qsl | ((qhl & 7u) << 8)]);
+        shmem_decoded[decoded_base + 2*l    ] = (grid     ) & 0x0F0F0F0F;
+        shmem_decoded[decoded_base + 2*l + 1] = (grid >> 4) & 0x0F0F0F0F;
+        local_iq_dl[n * 4 + l] = dl;
+        local_iq_dl_delta[n * 4 + l] = dl * (delta - 1);
+    }
+#endif // K-quant / IQ sub-types
+#endif // legacy vs K-quant
+}
+
+// =====================================================================
+// Load B-side data into cache registers
+// =====================================================================
+
+void load_cache_b(uint b_block_idx_outer, uint b_block_idx_inner, uint iqs) {
+    cache_b_ds = vec2(data_b[b_block_idx_outer].ds[b_block_idx_inner]);
+#if QUANT_R == 2
+    cache_b_qs[0] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs];
+    cache_b_qs[1] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs + 4];
+#elif K_PER_ITER == 8
+    cache_b_qs[0] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 2];
+    cache_b_qs[1] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 2 + 1];
+#elif K_PER_ITER == 16
+    cache_b_qs[0] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 4    ];
+    cache_b_qs[1] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 4 + 1];
+    cache_b_qs[2] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 4 + 2];
+    cache_b_qs[3] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + iqs * 4 + 3];
+#elif K_PER_ITER == 32
+    cache_b_qs[0] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8    ];
+    cache_b_qs[1] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 1];
+    cache_b_qs[2] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 2];
+    cache_b_qs[3] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 3];
+    cache_b_qs[4] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 4];
+    cache_b_qs[5] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 5];
+    cache_b_qs[6] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 6];
+    cache_b_qs[7] = data_b[b_block_idx_outer].qs[b_block_idx_inner * 8 + 7];
+#endif
+}
+
+// =====================================================================
+// Per-type dot product + scale application
+// =====================================================================
+
+FLOAT_TYPE compute_dot(uint decoded_base, uint n) {
+#if defined(DATA_A_Q4_0)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    return FLOAT_TYPE(local_scale[n] * (float(q_sum) * cache_b_ds.x - 2.0 * cache_b_ds.y));
+
+#elif defined(DATA_A_Q4_1)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    const vec2 dm = local_scale2[n];
+    return FLOAT_TYPE(float(q_sum) * dm.x * cache_b_ds.x + dm.y * cache_b_ds.y / 4.0);
+
+#elif defined(DATA_A_Q5_0)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    return FLOAT_TYPE(local_scale[n] * (float(q_sum) * cache_b_ds.x - 4.0 * cache_b_ds.y));
+
+#elif defined(DATA_A_Q5_1)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    const vec2 dm = local_scale2[n];
+    return FLOAT_TYPE(float(q_sum) * dm.x * cache_b_ds.x + dm.y * cache_b_ds.y / 4.0);
+
+#elif defined(DATA_A_Q8_0)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    return FLOAT_TYPE(float(q_sum) * local_scale[n] * cache_b_ds.x);
+
+#elif defined(DATA_A_MXFP4)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 2; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    return FLOAT_TYPE(local_scale[n] * cache_b_ds.x * float(q_sum) * 0.5);
+
+#elif defined(DATA_A_Q2_K)
+    const uint scale = local_scale_byte[n];
+    const int32_t scale_m = int32_t(scale >> 4) * 0x01010101;
+    int32_t sum_d = 0, sum_m = 0;
+    [[unroll]] for (uint k = 0; k < 4; k++) {
+        sum_d += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]) * int(scale & 0xFu);
+        sum_m += dotPacked4x8EXT(scale_m, cache_b_qs[k]);
+    }
+    const vec2 dm = local_dm[n];
+    return FLOAT_TYPE(cache_b_ds.x * (dm.x * float(sum_d) - dm.y * float(sum_m)));
+
+#elif defined(DATA_A_Q3_K) || defined(DATA_A_Q6_K)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 4; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    return FLOAT_TYPE(cache_b_ds.x * local_d_scale[n] * float(q_sum));
+
+#elif defined(DATA_A_Q4_K) || defined(DATA_A_Q5_K)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 4; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    const vec2 dms = local_dm_scale[n];
+    return FLOAT_TYPE(cache_b_ds.x * dms.x * float(q_sum) - dms.y * cache_b_ds.y / 2.0);
+
+#elif defined(DATA_A_IQ1_S)
+    int32_t q_sum = 0;
+    [[unroll]] for (uint k = 0; k < 8; k++) q_sum += dotPacked4x8EXT(shmem_decoded[decoded_base + k], cache_b_qs[k]);
+    const vec2 dm = local_iq_dm[n];
+    return FLOAT_TYPE(cache_b_ds.x * dm.x * float(q_sum) + dm.y * cache_b_ds.y);
+
+#elif defined(DATA_A_IQ1_M)
+    float sum = 0;
+    [[unroll]] for (int l = 0; l < 4; ++l) {
+        int32_t lq = dotPacked4x8EXT(shmem_decoded[decoded_base + 2*l], cache_b_qs[2*l]) +
+                     dotPacked4x8EXT(shmem_decoded[decoded_base + 2*l + 1], cache_b_qs[2*l + 1]);
+        int32_t ly = dotPacked4x8EXT(int(0x01010101), cache_b_qs[2*l]) +
+                     dotPacked4x8EXT(int(0x01010101), cache_b_qs[2*l + 1]);
+        sum += local_iq_dl[n * 4 + l] * float(lq) + local_iq_dl_delta[n * 4 + l] * float(ly);
+    }
+    return FLOAT_TYPE(sum * cache_b_ds.x);
+#endif
+}
+
+// =====================================================================
+// Main compute
+// =====================================================================
+
+void compute_outputs(const uint32_t first_row, const uint32_t num_rows) {
+    const uint tid = gl_LocalInvocationID.x;
+
+    get_offsets(a_offset, b_offset, d_offset);
+    const uint a_offset_blocks = a_offset;
+    a_offset *= QUANT_K / QUANT_K_Q8_1;
+    b_offset /= QUANT_K_Q8_1;
+
+    FLOAT_TYPE temp[NUM_COLS][NUM_ROWS];
+    [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
+        [[unroll]] for (uint n = 0; n < num_rows; ++n) {
+            temp[j][n] = FLOAT_TYPE(0.0f);
+        }
+    }
+
+    const uint total_blocks_per_row = p.ncols / QUANT_K;
+    const uint row_base_block_0 = first_row * total_blocks_per_row + a_offset_blocks;
+    const uint num_tiles = (total_blocks_per_row + SHMEM_BLOCKS_PER_TILE - 1u) / SHMEM_BLOCKS_PER_TILE;
+
+    const uint threads_per_sub_block = 32u / K_PER_ITER;
+    const uint ib = tid / threads_per_sub_block;
+    const uint iqs = tid % threads_per_sub_block;
+
+    for (uint tile = 0u; tile < num_tiles; ++tile) {
+        const uint blocks_remaining = total_blocks_per_row - tile * SHMEM_BLOCKS_PER_TILE;
+        const uint blocks_in_tile = min(blocks_remaining, SHMEM_BLOCKS_PER_TILE);
+
+        // Decode: each thread reads its own bytes from global memory into shmem + local scale registers
+        [[unroll]] for (uint n = 0; n < num_rows; ++n) {
+            if (ib < blocks_in_tile * (QUANT_K / QUANT_K_Q8_1)) {
+                const uint first_block = row_base_block_0 + n * total_blocks_per_row + tile * SHMEM_BLOCKS_PER_TILE;
+                const uint decoded_base = n * DECODED_STRIDE + tid * (K_PER_ITER / 4);
+                decode_tile_element(first_block, ib, iqs, decoded_base, n);
+            }
+        }
+
+        // Compute: dot products from shmem decoded data + local scale registers
+        const uint global_col = tile * SHMEM_TILE_K + tid * K_PER_ITER;
+        if (global_col < p.ncols) {
+            [[unroll]] for (uint j = 0; j < NUM_COLS; ++j) {
+                const uint b_block_idx = (j * p.batch_stride_b + global_col) / QUANT_K_Q8_1 + b_offset;
+                load_cache_b(b_block_idx / 4, b_block_idx % 4, iqs);
+
+                [[unroll]] for (uint n = 0; n < num_rows; ++n) {
+                    const uint decoded_base = n * DECODED_STRIDE + tid * (K_PER_ITER / 4);
+                    temp[j][n] += compute_dot(decoded_base, n);
+                }
+            }
+        }
+    }
+
+    reduce_result(temp, d_offset, first_row, num_rows, tid);
+}
+
+void main() {
+    const uint first_row = NUM_ROWS * (gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.z);
+
+#ifdef NEEDS_INIT_IQ_SHMEM
+    init_iq_shmem(gl_WorkGroupSize);
+#endif
+
+    if (first_row + NUM_ROWS <= p.stride_d) {
+        compute_outputs(first_row, NUM_ROWS);
+    } else {
+        if (first_row >= p.stride_d) {
+            return;
+        }
+        compute_outputs(first_row, p.stride_d - first_row);
+    }
+}
