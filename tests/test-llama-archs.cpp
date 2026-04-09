@@ -86,6 +86,11 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     uint32_t n_layer = 2;
     if (arch == LLM_ARCH_LLAMA4) {
         n_layer = 4; // hparams.n_no_rope_layer_step is hard-coded to 4
+    } else if (arch == LLM_ARCH_GEMMA4) {
+        n_embd = 128;
+        n_head = 2;
+        n_ff   = 192;
+        n_layer = 5; // need at least 5 for swa_pattern (every 5th is full_attention)
     } else if (arch == LLM_ARCH_GEMMA3N) {
         n_embd = 64;
         n_head = 1;
@@ -167,7 +172,15 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     ms.add_kv(LLM_KV_ATTENTION_RELATIVE_BUCKETS_COUNT, uint32_t(8));
     ms.add_kv(LLM_KV_ATTENTION_SLIDING_WINDOW,         n_ctx/8);
 
-    if (arch == LLM_ARCH_MIMO2 || arch == LLM_ARCH_STEP35) {
+    if (arch == LLM_ARCH_GEMMA4) {
+        ms.add_kv(LLM_KV_EMBEDDING_LENGTH_PER_LAYER,      n_embd/2);
+        ms.add_kv(LLM_KV_ATTENTION_SHARED_KV_LAYERS,      uint32_t(0));
+        ms.add_kv(LLM_KV_ATTENTION_KEY_LENGTH_SWA,        n_embd_head);
+        ms.add_kv(LLM_KV_ATTENTION_VALUE_LENGTH_SWA,      n_embd_head);
+        ms.add_kv(LLM_KV_ROPE_FREQ_BASE_SWA,              10000.0f);
+        // SWA pattern: every 5th layer is full attention (matches E2B layer_types)
+        ms.add_kv(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, uint32_t(5));
+    } else if (arch == LLM_ARCH_MIMO2 || arch == LLM_ARCH_STEP35) {
         std::vector<uint32_t> pattern;
         pattern.reserve(n_layer);
         for (uint32_t il = 0; il < n_layer; il++) {
@@ -386,7 +399,7 @@ static int save_models(const llm_arch target_arch, const size_t seed, const ggml
             continue; // Only half-implemented and to be removed in the future.
         }
         if (arch == LLM_ARCH_GEMMA4) {
-            continue; // FIXME @ngxson
+            continue; // FIXME: ISWA KV cache initialization needs more fixture params
         }
         if (arch == LLM_ARCH_RWKV6 || arch == LLM_ARCH_RWKV6QWEN2 || arch == LLM_ARCH_RWKV7 || arch == LLM_ARCH_ARWKV7) {
             continue; // FIXME
@@ -455,7 +468,7 @@ static int test_backends(const llm_arch target_arch, const size_t seed, const gg
             continue; // Only half-implemented and to be removed in the future.
         }
         if (arch == LLM_ARCH_GEMMA4) {
-            continue; // FIXME @ngxson
+            continue; // FIXME: ISWA KV cache initialization needs more fixture params
         }
         if (arch == LLM_ARCH_WAVTOKENIZER_DEC) {
             continue; // FIXME CUDA backend crashes.
