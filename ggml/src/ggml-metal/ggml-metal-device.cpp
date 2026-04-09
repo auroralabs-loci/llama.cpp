@@ -250,6 +250,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_unary(ggml_metal
                 case GGML_UNARY_OP_CEIL:        op_num = OP_UNARY_NUM_CEIL;        break;
                 case GGML_UNARY_OP_ROUND:       op_num = OP_UNARY_NUM_ROUND;       break;
                 case GGML_UNARY_OP_TRUNC:       op_num = OP_UNARY_NUM_TRUNC;       break;
+                case GGML_UNARY_OP_XIELU:       op_num = OP_UNARY_NUM_XIELU;       break;
                 default: GGML_ABORT("fatal error");
             } break;
         default: GGML_ABORT("fatal error");
@@ -1471,10 +1472,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_bin(ggml_metal_l
     int op_num = -1;
 
     switch (op->op) {
-        case GGML_OP_ADD: op_num = 0; break;
-        case GGML_OP_SUB: op_num = 1; break;
-        case GGML_OP_MUL: op_num = 2; break;
-        case GGML_OP_DIV: op_num = 3; break;
+        case GGML_OP_ADD:
+        case GGML_OP_ADD1: op_num = 0; break;
+        case GGML_OP_SUB:  op_num = 1; break;
+        case GGML_OP_MUL:  op_num = 2; break;
+        case GGML_OP_DIV:  op_num = 3; break;
         default: GGML_ABORT("fatal error");
     };
 
