@@ -30,6 +30,7 @@ ggml_tensor * clip_graph_yasa2::layer_norm_channels(ggml_tensor * inp, ggml_tens
     // u = mean_c(x), s = mean_c((x-u)^2), x = (x-u)/sqrt(s+eps)
     // cast back to input dtype before affine.
     ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3); // [W,H,C,B] -> [C,H,W,B]
+    cur = ggml_cont(ctx0, cur);
 
     ggml_tensor * u = ggml_mean(ctx0, cur);                 // [1,H,W,B]
     ggml_tensor * xm = ggml_sub(ctx0, cur, u);              // [C,H,W,B]
@@ -41,6 +42,7 @@ ggml_tensor * clip_graph_yasa2::layer_norm_channels(ggml_tensor * inp, ggml_tens
 
     ggml_tensor * xhat = ggml_div(ctx0, xm, s);             // [C,H,W,B]
     xhat = ggml_permute(ctx0, xhat, 2, 1, 0, 3);            // [W,H,C,B]
+    xhat = ggml_cont(ctx0, xhat);
     xhat = mul_channel_weight(ctx0, xhat, w);
     xhat = add_channel_bias(ctx0, xhat, b);
     return xhat;
@@ -62,11 +64,13 @@ ggml_tensor * clip_graph_yasa2::convnext_grn(ggml_tensor * inp, ggml_tensor * w,
     gx = ggml_sqrt(ctx0, gx);                                                           // [1,C,1,B]
 
     ggml_tensor * gx_ch_first = ggml_permute(ctx0, gx, 1, 0, 2, 3);                    // [C,1,1,B]
+    gx_ch_first = ggml_cont(ctx0, gx_ch_first);
     ggml_tensor * gx_mean = ggml_mean(ctx0, gx_ch_first);                              // [1,1,1,B]
 
     gx_mean = ggml_clamp(ctx0, gx_mean, 1e-6f, 1e30f);                                  // approx +eps, warmup-safe
     ggml_tensor * nx = ggml_div(ctx0, gx, gx_mean);                                    // [1,C,1,B]
     nx = ggml_permute(ctx0, nx, 0, 2, 1, 3);                                            // [1,1,C,B]
+    nx = ggml_cont(ctx0, nx);
 
     ggml_tensor * xnx = ggml_mul(ctx0, inp, nx);
     xnx = mul_channel_weight(ctx0, xnx, w);
@@ -112,6 +116,7 @@ ggml_cgraph * clip_graph_yasa2::build() {
 
             ggml_tensor * tok = ggml_reshape_3d(ctx0, x, w * h, x->ne[2], b); // [T,C,B]
             tok = ggml_permute(ctx0, tok, 1, 0, 2, 3);                        // [C,T,B]
+            tok = ggml_cont(ctx0, tok);
 
             tok = ggml_mul_mat(ctx0, blk.pw1_w, tok);                         // [4C,T,B]
             if (blk.pw1_b) {
@@ -126,6 +131,7 @@ ggml_cgraph * clip_graph_yasa2::build() {
 
             tok = ggml_reshape_3d(ctx0, x, w * h, x->ne[2], b);              // [T,4C,B]
             tok = ggml_permute(ctx0, tok, 1, 0, 2, 3);                       // [4C,T,B]
+            tok = ggml_cont(ctx0, tok);
 
             tok = ggml_mul_mat(ctx0, blk.pw2_w, tok);                        // [C,T,B]
             if (blk.pw2_b) {
@@ -167,6 +173,7 @@ ggml_cgraph * clip_graph_yasa2::build() {
     // [W,H,C,B] -> [C,T,B]
     ggml_tensor * tokens = ggml_reshape_3d(ctx0, cur, cur->ne[0] * cur->ne[1], cur->ne[2], cur->ne[3]);
     tokens = ggml_permute(ctx0, tokens, 1, 0, 2, 3);
+    tokens = ggml_cont(ctx0, tokens);
     cb(tokens, "yasa2_tokens", -1);
 
     GGML_ASSERT(model.mm_0_w && model.mm_2_w);
