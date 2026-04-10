@@ -713,8 +713,8 @@ static __device__ __forceinline__ float vec_dot_q1_0_q8_1(
     }
 
     // Apply Q1_0's single scale and this chunk's Q8_1 scale
-    const float2 ds8f = __half22float2(bq8_1_chunk->ds);
-    return d1 * ds8f.x * sumi;
+    const float d8 = __low2float(bq8_1_chunk->ds);
+    return d1 * d8 * sumi;
 }
 
 static __device__ __forceinline__ float vec_dot_q4_0_q8_1(
