@@ -53,8 +53,6 @@ add_library(${TARGET} STATIC
     chat-diff-analyzer.cpp
     chat-peg-parser.cpp
     chat-peg-parser.h
-    chat-reka.cpp
-    chat-reka.h
     chat.cpp
     chat.h
     common.cpp
