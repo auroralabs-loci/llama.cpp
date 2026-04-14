@@ -200,8 +200,7 @@ static bool is_modelscope_target() {
     const char * env = std::getenv("MODEL_ENDPOINT");
     if (!env) return false;
     std::string ep(env);
-    return ep.find("modelscope.cn") != std::string::npos || 
-           ep.find("modelscope.com") != std::string::npos;
+    return ep.find("modelscope") != std::string::npos;
 }
 
 static nl::json api_get(const std::string & url,
@@ -209,12 +208,9 @@ static nl::json api_get(const std::string & url,
     auto [cli, parts] = common_http_client(url);
 
     bool is_ms = is_modelscope_target();
-    
-    // Set User-Agent based on target
-    std::string ua = is_ms ? "modelscope/1.34.0" : ("llama-cpp/" + build_info);
 
     httplib::Headers headers = {
-        {"User-Agent", ua},
+        {"User-Agent", "llama-cpp/" + build_info},
         {"Accept", "application/json"}
     };
 
@@ -236,30 +232,18 @@ static nl::json api_get(const std::string & url,
         auto body = res->body;
 
         if (res->status == 200) {
-            try {
-                return nl::json::parse(body);
-            } catch (...) {
-                throw std::runtime_error("JSON parse error in successful response");
-            }
+            return nl::json::parse(res->body);
         }
-        
-        // Enhanced error reporting for MS HTML errors
-        std::string err_msg = "GET failed (" + std::to_string(res->status) + ")";
         try {
-            auto json_err = nl::json::parse(body);
-            if (json_err.contains("Message")) err_msg += ": " + json_err["Message"].get<std::string>();
-            else if (json_err.contains("error")) err_msg += ": " + json_err["error"].get<std::string>();
-            else err_msg += ": " + body.substr(0, 100);
-        } catch (...) {
-             if (body.length() > 100) err_msg += ": " + body.substr(0, 100) + "...";
-             else err_msg += ": " + body;
-        }
+            body = nl::json::parse(res->body)["error"].get<std::string>();
+        } catch (...) { }
 
-        throw std::runtime_error(err_msg);
+        throw std::runtime_error("GET failed (" + std::to_string(res->status) + "): " + body);
     } else {
         throw std::runtime_error("HTTPLIB failed: " + httplib::to_string(res.error()));
     }
 }
+
 
 static std::string get_repo_commit(const std::string & repo_id,
                                    const std::string & token) {
@@ -350,17 +334,13 @@ hf_files get_repo_files(const std::string & repo_id,
     try {
         auto endpoint = get_model_endpoint();
         bool is_ms = is_modelscope_target();
-        nl::json json;
 
         if (is_ms) {
-            // Use ModelScope specific API
+            // ModelScope specific API
             std::string url = endpoint + "api/v1/models/" + repo_id + "/repo/files?Revision=" + commit + "&Recursive=True";
-            json = api_get(url, token);
+            auto json = api_get(url, token);
 
-            // Parse MS specific JSON structure: { "Code": 200, "Data": { "Files": [...] } }
-            if (json.contains("Code") && json["Code"] != 200) {
-                 throw std::runtime_error("ModelScope API Error: " + json.value("Message", "Unknown"));
-            }
+            // MS returns { "Code": 200, "Data": { "Files": [...] } }
             if (!json.contains("Data") || !json["Data"].contains("Files") || !json["Data"]["Files"].is_array()) {
                 return {};
             }
@@ -371,6 +351,12 @@ hf_files get_repo_files(const std::string & repo_id,
                 hf_file file;
                 file.repo_id = repo_id;
                 file.path = item["Path"].get<std::string>();
+
+                // Security check consistent with HF logic
+                if (!is_valid_subpath(commit_path, file.path)) {
+                    LOG_WRN("%s: skip invalid path: %s\n", __func__, file.path.c_str());
+                    continue;
+                }
                 
                 if (item.contains("Size") && item["Size"].is_number_unsigned()) {
                     file.size = item["Size"].get<size_t>();
