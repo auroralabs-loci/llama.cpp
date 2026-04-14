@@ -175,6 +175,8 @@ If an older version of Powershell is used, these commands may not work as they a
 
 ### I. Setup Environment
 
+The two steps below also apply to Linux. If building for Linux, Ensure you have Git, CMake, Clang, Ninja and Python installed, in the second step remove the `-DCMAKE_TOOLCHAIN_FILE` parameter, and replace the backticks with back slashes.  
+
 1. **Install OpenCL Headers and Library**
 
 ```powershell
