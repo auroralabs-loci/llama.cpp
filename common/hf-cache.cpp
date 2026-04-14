@@ -195,32 +195,67 @@ static void safe_write_file(const fs::path & path, const std::string & data) {
     }
 }
 
+// Helper to detect if we are targeting ModelScope
+static bool is_modelscope_target() {
+    const char * env = std::getenv("MODEL_ENDPOINT");
+    if (!env) return false;
+    std::string ep(env);
+    return ep.find("modelscope.cn") != std::string::npos || 
+           ep.find("modelscope.com") != std::string::npos;
+}
+
 static nl::json api_get(const std::string & url,
                         const std::string & token) {
     auto [cli, parts] = common_http_client(url);
 
+    bool is_ms = is_modelscope_target();
+    
+    // Set User-Agent based on target
+    std::string ua = is_ms ? "modelscope/1.34.0" : ("llama-cpp/" + build_info);
+
     httplib::Headers headers = {
-        {"User-Agent", "llama-cpp/" + build_info},
+        {"User-Agent", ua},
         {"Accept", "application/json"}
     };
 
-    if (is_valid_hf_token(token)) {
-        headers.emplace("Authorization", "Bearer " + token);
-    } else if (!token.empty()) {
-        LOG_WRN("%s: invalid token, authentication disabled\n", __func__);
+    if (!token.empty()) {
+        if (is_ms) {
+            // ModelScope uses Cookie auth for private models
+            headers.emplace("Cookie", "m_session_id=" + token);
+        } else {
+            // Hugging Face uses Bearer auth
+            if (is_valid_hf_token(token)) {
+                headers.emplace("Authorization", "Bearer " + token);
+            } else {
+                LOG_WRN("%s: invalid token, authentication disabled\n", __func__);
+            }
+        }
     }
 
     if (auto res = cli.Get(parts.path, headers)) {
         auto body = res->body;
 
         if (res->status == 200) {
-            return nl::json::parse(res->body);
+            try {
+                return nl::json::parse(body);
+            } catch (...) {
+                throw std::runtime_error("JSON parse error in successful response");
+            }
         }
+        
+        // Enhanced error reporting for MS HTML errors
+        std::string err_msg = "GET failed (" + std::to_string(res->status) + ")";
         try {
-            body = nl::json::parse(res->body)["error"].get<std::string>();
-        } catch (...) { }
+            auto json_err = nl::json::parse(body);
+            if (json_err.contains("Message")) err_msg += ": " + json_err["Message"].get<std::string>();
+            else if (json_err.contains("error")) err_msg += ": " + json_err["error"].get<std::string>();
+            else err_msg += ": " + body.substr(0, 100);
+        } catch (...) {
+             if (body.length() > 100) err_msg += ": " + body.substr(0, 100) + "...";
+             else err_msg += ": " + body;
+        }
 
-        throw std::runtime_error("GET failed (" + std::to_string(res->status) + "): " + body);
+        throw std::runtime_error(err_msg);
     } else {
         throw std::runtime_error("HTTPLIB failed: " + httplib::to_string(res.error()));
     }
@@ -228,6 +263,12 @@ static nl::json api_get(const std::string & url,
 
 static std::string get_repo_commit(const std::string & repo_id,
                                    const std::string & token) {
+    // ModelScope does not support the standard /refs API used by HF.
+    // We default to 'master' branch for MS to avoid HTML parsing errors.
+    if (is_modelscope_target()) {
+        return "master";
+    }
+
     try {
         auto endpoint = get_model_endpoint();
         auto json = api_get(endpoint + "api/models/" + repo_id + "/refs", token);
@@ -308,62 +349,105 @@ hf_files get_repo_files(const std::string & repo_id,
 
     try {
         auto endpoint = get_model_endpoint();
-        auto json = api_get(endpoint + "api/models/" + repo_id + "/tree/" + commit + "?recursive=true", token);
+        bool is_ms = is_modelscope_target();
+        nl::json json;
 
-        if (!json.is_array()) {
-            LOG_WRN("%s: response is not an array for '%s'\n", __func__, repo_id.c_str());
-            return {};
+        if (is_ms) {
+            // Use ModelScope specific API
+            std::string url = endpoint + "api/v1/models/" + repo_id + "/repo/files?Revision=" + commit + "&Recursive=True";
+            json = api_get(url, token);
+
+            // Parse MS specific JSON structure: { "Code": 200, "Data": { "Files": [...] } }
+            if (json.contains("Code") && json["Code"] != 200) {
+                 throw std::runtime_error("ModelScope API Error: " + json.value("Message", "Unknown"));
+            }
+            if (!json.contains("Data") || !json["Data"].contains("Files") || !json["Data"]["Files"].is_array()) {
+                return {};
+            }
+
+            for (const auto & item : json["Data"]["Files"]) {
+                if (!item.contains("Path") || !item["Path"].is_string()) continue;
+                
+                hf_file file;
+                file.repo_id = repo_id;
+                file.path = item["Path"].get<std::string>();
+                
+                if (item.contains("Size") && item["Size"].is_number_unsigned()) {
+                    file.size = item["Size"].get<size_t>();
+                }
+                if (item.contains("Sha256") && item["Sha256"].is_string()) {
+                    file.oid = item["Sha256"].get<std::string>();
+                } else if (item.contains("Revision") && item["Revision"].is_string()) {
+                    file.oid = item["Revision"].get<std::string>();
+                }
+
+                file.url = endpoint + "models/" + repo_id + "/resolve/" + commit + "/" + file.path;
+                file.final_path = (commit_path / file.path).string();
+                file.local_path = file.oid.empty() ? file.final_path : (blobs_path / file.oid).string();
+                
+                files.push_back(std::move(file));
+            }
+
+        } else {
+            // Original Hugging Face logic
+            auto json = api_get(endpoint + "api/models/" + repo_id + "/tree/" + commit + "?recursive=true", token);
+
+            if (!json.is_array()) {
+                LOG_WRN("%s: response is not an array for '%s'\n", __func__, repo_id.c_str());
+                return {};
+            }
+
+            for (const auto & item : json) {
+                if (!item.is_object() ||
+                    !item.contains("type") || !item["type"].is_string() || item["type"] != "file" ||
+                    !item.contains("path") || !item["path"].is_string()) {
+                    continue;
+                }
+
+                hf_file file;
+                file.repo_id = repo_id;
+                file.path = item["path"].get<std::string>();
+
+                if (!is_valid_subpath(commit_path, file.path)) {
+                    LOG_WRN("%s: skip invalid path: %s\n", __func__, file.path.c_str());
+                    continue;
+                }
+
+                if (item.contains("lfs") && item["lfs"].is_object()) {
+                    if (item["lfs"].contains("oid") && item["lfs"]["oid"].is_string()) {
+                        file.oid = item["lfs"]["oid"].get<std::string>();
+                    }
+                    if (item["lfs"].contains("size") && item["lfs"]["size"].is_number()) {
+                        file.size = item["lfs"]["size"].get<size_t>();
+                    }
+                } else if (item.contains("oid") && item["oid"].is_string()) {
+                    file.oid = item["oid"].get<std::string>();
+                }
+                if (file.size == 0 && item.contains("size") && item["size"].is_number()) {
+                    file.size = item["size"].get<size_t>();
+                }
+
+                if (!file.oid.empty() && !is_valid_oid(file.oid)) {
+                    LOG_WRN("%s: skip invalid oid: %s\n", __func__, file.oid.c_str());
+                    continue;
+                }
+
+                file.url = endpoint + repo_id + "/resolve/" + commit + "/" + file.path;
+
+                fs::path final_path = commit_path / file.path;
+                file.final_path = final_path.string();
+
+                if (!file.oid.empty() && !fs::exists(final_path)) {
+                    fs::path local_path = blobs_path / file.oid;
+                    file.local_path = local_path.string();
+                } else {
+                    file.local_path = file.final_path;
+                }
+
+                files.push_back(file);
+            }
         }
 
-        for (const auto & item : json) {
-            if (!item.is_object() ||
-                !item.contains("type") || !item["type"].is_string() || item["type"] != "file" ||
-                !item.contains("path") || !item["path"].is_string()) {
-                continue;
-            }
-
-            hf_file file;
-            file.repo_id = repo_id;
-            file.path = item["path"].get<std::string>();
-
-            if (!is_valid_subpath(commit_path, file.path)) {
-                LOG_WRN("%s: skip invalid path: %s\n", __func__, file.path.c_str());
-                continue;
-            }
-
-            if (item.contains("lfs") && item["lfs"].is_object()) {
-                if (item["lfs"].contains("oid") && item["lfs"]["oid"].is_string()) {
-                    file.oid = item["lfs"]["oid"].get<std::string>();
-                }
-                if (item["lfs"].contains("size") && item["lfs"]["size"].is_number()) {
-                    file.size = item["lfs"]["size"].get<size_t>();
-                }
-            } else if (item.contains("oid") && item["oid"].is_string()) {
-                file.oid = item["oid"].get<std::string>();
-            }
-            if (file.size == 0 && item.contains("size") && item["size"].is_number()) {
-                file.size = item["size"].get<size_t>();
-            }
-
-            if (!file.oid.empty() && !is_valid_oid(file.oid)) {
-                LOG_WRN("%s: skip invalid oid: %s\n", __func__, file.oid.c_str());
-                continue;
-            }
-
-            file.url = endpoint + repo_id + "/resolve/" + commit + "/" + file.path;
-
-            fs::path final_path = commit_path / file.path;
-            file.final_path = final_path.string();
-
-            if (!file.oid.empty() && !fs::exists(final_path)) {
-                fs::path local_path = blobs_path / file.oid;
-                file.local_path = local_path.string();
-            } else {
-                file.local_path = file.final_path;
-            }
-
-            files.push_back(file);
-        }
     } catch (const nl::json::exception & e) {
         LOG_ERR("%s: JSON error: %s\n", __func__, e.what());
     } catch (const std::exception & e) {
