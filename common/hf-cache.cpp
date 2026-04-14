@@ -244,7 +244,6 @@ static nl::json api_get(const std::string & url,
     }
 }
 
-
 static std::string get_repo_commit(const std::string & repo_id,
                                    const std::string & token) {
     // ModelScope does not support the standard /refs API used by HF.
