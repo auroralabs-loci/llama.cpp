@@ -23,7 +23,7 @@ jobs:
       UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}

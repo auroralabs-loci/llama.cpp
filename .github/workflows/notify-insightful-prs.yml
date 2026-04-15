@@ -34,10 +34,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+      GH_TOKEN: ${{ secrets.UPSTREAM_REPOS_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           token: ${{ env.GH_TOKEN }}
 

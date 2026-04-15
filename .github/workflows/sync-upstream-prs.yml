@@ -49,7 +49,7 @@ jobs:
             echo "Hour ${current_hour} matches schedule (${SYNC_HOURS}). Running."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.schedule.outputs.skip != 'true'
         with:
           fetch-depth: 0
