@@ -506,6 +506,7 @@ class VISION_PROJECTOR_TYPE(IntEnum):
     GEMMA3N   = auto()
     GEMMA3    = auto()
     QWEN3VL   = auto()
+    STEP3VL   = auto()
     COGVLM    = auto()
 
 
@@ -797,6 +798,8 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_INP_PROJ        = auto() # gemma4
     A_ENC_CONV1D          = auto()
     A_ENC_CONV1D_NORM     = auto() # gemma3n
+    A_ENC_CONV2D          = auto()
+    A_ENC_CONV_OUT        = auto()
     A_PRE_NORM            = auto()
     A_POST_NORM           = auto()
     A_ENC_LAYER_PRE_NORM  = auto() # gemma3n
@@ -987,6 +990,8 @@ VISION_PROJECTOR_TYPE_NAMES: dict[VISION_PROJECTOR_TYPE, str] = {
     VISION_PROJECTOR_TYPE.GLM_EDGE:  "adapter",
     VISION_PROJECTOR_TYPE.MERGER:    "qwen2vl_merger",
     VISION_PROJECTOR_TYPE.GEMMA3:    "gemma3",
+    VISION_PROJECTOR_TYPE.QWEN3VL:   "qwen3vl_merger",
+    VISION_PROJECTOR_TYPE.STEP3VL:   "step3vl",
 }
 
 TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
@@ -1277,6 +1282,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS:      "a.embd_to_logits",
     MODEL_TENSOR.A_ENC_INP_PROJ:            "a.input_projection",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
+    MODEL_TENSOR.A_ENC_CONV2D:              "a.conv2d.{bid}",
+    MODEL_TENSOR.A_ENC_CONV_OUT:            "a.conv_out",
     MODEL_TENSOR.A_ENC_CONV1D_NORM:         "a.conv1d.{bid}.norm",
     MODEL_TENSOR.A_PRE_NORM:                "a.pre_ln",
     MODEL_TENSOR.A_POST_NORM:               "a.post_ln",
@@ -1423,6 +1430,8 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS,
         MODEL_TENSOR.A_ENC_INP_PROJ,
         MODEL_TENSOR.A_ENC_CONV1D,
+        MODEL_TENSOR.A_ENC_CONV2D,
+        MODEL_TENSOR.A_ENC_CONV_OUT,
         MODEL_TENSOR.A_ENC_CONV1D_NORM,
         MODEL_TENSOR.A_PRE_NORM,
         MODEL_TENSOR.A_POST_NORM,
@@ -4105,12 +4114,15 @@ class VisionProjectorType:
     QWEN2VL = "qwen2vl_merger"
     QWEN25VL = "qwen2.5vl_merger"
     QWEN3VL = "qwen3vl_merger"
+    STEP3VL = "step3vl"
     ULTRAVOX = "ultravox"
     INTERNVL = "internvl"
     QWEN2A = "qwen2a" # audio
+    QWEN3A = "qwen3a" # audio
     GLMA = "glma" # audio
     QWEN25O = "qwen2.5o" # omni
     VOXTRAL = "voxtral"
+    MERALION = "meralion"  # audio: Whisper + gated MLP adaptor
     LFM2 = "lfm2"
     KIMIVL = "kimivl"
     PADDLEOCR = "paddleocr"
@@ -4118,6 +4130,7 @@ class VisionProjectorType:
     LIGHTONOCR = "lightonocr"
     COGVLM = "cogvlm"
     JANUS_PRO = "janus_pro"
+    DOTSOCR = "dots_ocr"
     DEEPSEEKOCR = "deepseekocr"
     LFM2A = "lfm2a" # audio
     MUSIC_FLAMINGO = "musicflamingo" # audio

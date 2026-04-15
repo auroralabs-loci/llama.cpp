@@ -3033,6 +3033,8 @@ server_context_meta server_context::get_meta() const {
         /* fim_rep_token          */ llama_vocab_fim_rep(impl->vocab),
         /* fim_sep_token          */ llama_vocab_fim_sep(impl->vocab),
 
+        /* logit_bias_eog         */ impl->params_base.sampling.logit_bias_eog,
+
         /* model_vocab_type       */ llama_vocab_type(impl->vocab),
         /* model_vocab_n_tokens   */ llama_vocab_n_tokens(impl->vocab),
         /* model_n_ctx_train      */ llama_model_n_ctx_train(impl->model),
@@ -3117,6 +3119,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                     ctx_server.vocab,
                     params,
                     meta->slot_n_ctx,
+                    meta->logit_bias_eog,
                     data);
             task.id_slot = json_value(data, "id_slot", -1);
 
@@ -3727,6 +3730,33 @@ void server_routes::init_routes() {
             body_parsed,
             files,
             TASK_RESPONSE_TYPE_OAI_RESP);
+    };
+
+    this->post_transcriptions_oai = [this](const server_http_req & req) {
+        auto res = create_response();
+
+        if (!meta->has_mtmd || !meta->chat_params.allow_audio) {
+            res->error(format_error_response("The current model does not support audio input.", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        std::vector<raw_buffer> files;
+        json body = convert_transcriptions_to_chatcmpl(
+            json::parse(req.body),
+            req.files,
+            files);
+        SRV_DBG("%s\n", "Request converted: OpenAI Transcriptions -> OpenAI Chat Completions");
+        SRV_DBG("converted request: %s\n", body.dump().c_str());
+        json body_parsed = oaicompat_chat_params_parse(
+            body,
+            meta->chat_params,
+            files);
+        return handle_completions_impl(
+            req,
+            SERVER_TASK_TYPE_COMPLETION,
+            body_parsed,
+            files,
+            TASK_RESPONSE_TYPE_OAI_ASR);
     };
 
     this->post_anthropic_messages = [this](const server_http_req & req) {
