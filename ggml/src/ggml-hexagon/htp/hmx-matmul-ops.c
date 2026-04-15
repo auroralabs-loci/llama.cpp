@@ -678,7 +678,7 @@ static void core_dot_chunk_fp16(__fp16 *restrict output, const __fp16 *restrict 
     __builtin_assume(n_dot_tiles > 0);
 
     Q6_bias_mxmem2_A((void *)scales);
-
+    for (int r = 0; r < n_row_tiles; ++r) {
         for (size_t c = 0; c < n_col_tiles; ++c) {
             Q6_mxclracc_hf();
 
@@ -944,7 +944,6 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
     const size_t weight_row_bytes = (size_t) params->weight_stride * sizeof(__fp16);
 
     HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
-    hmx_set_output_scales(vtcm_scales);
 
     for (int b3 = 0; b3 < params->ne13; ++b3) {
         for (int b2_base = 0; b2_base < params->ne12; b2_base += group_size) {
@@ -1017,7 +1016,7 @@ int hmx_mat_mul_permuted_w16a32_batched(struct htp_context *ctx, const hmx_matmu
                         TIMER_START(hmx_core);
                         {
                             const __fp16 * vtcm_act_g = vtcm_activation + (size_t) g * act_head_stride;
-                            core_dot_chunk_fp16(vtcm_output, vtcm_act_g, vtcm_weight, n_row_tiles, n_col_tiles,
+                            core_dot_chunk_fp16(vtcm_output, vtcm_act_g, vtcm_weight, vtcm_scales, n_row_tiles, n_col_tiles,
                                                 params->k / 32);
                         }
                         TIMER_STOP(hmx_core);
@@ -1118,7 +1117,6 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
     TIMER_START(total);
 
     HAP_compute_res_hmx_lock(ctx->vtcm_rctx);
-    hmx_set_output_scales(vtcm_scales);
 
     for (size_t mr = 0; mr < m; mr += m_chunk_n_rows) {
         // transfer activation matrix chunk into VTCM
@@ -1187,7 +1185,7 @@ int hmx_mat_mul_permuted_w16a32(struct htp_context *ctx, float *restrict dst, co
 
             TIMER_START(hmx_core);
             {
-                core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, n_row_tiles, n_col_tiles, k / 32);
+                core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, vtcm_scales, n_row_tiles, n_col_tiles, k / 32);
             }
             TIMER_STOP(hmx_core);
 
@@ -1376,7 +1374,7 @@ int hmx_mat_mul_permuted_qk_0_d16a32(struct htp_context *ctx, float *restrict ds
 
                 TIMER_START(hmx_core);
                 {
-                    core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, n_row_tiles, n_col_tiles, k / 32);
+                    core_dot_chunk_fp16(vtcm_output, vtcm_activation, vtcm_weight, vtcm_scales, n_row_tiles, n_col_tiles, k / 32);
                 }
                 TIMER_STOP(hmx_core);
 
