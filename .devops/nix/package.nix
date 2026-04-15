@@ -13,7 +13,6 @@
   cudaPackages,
   autoAddDriverRunpath,
   darwin,
-  apple-sdk ? null,
   rocmPackages,
   vulkan-headers,
   vulkan-loader,
@@ -77,17 +76,15 @@ let
   '';
 
   # apple_sdk is supposed to choose sane defaults, no need to handle isAarch64
-  # separately.
-  # Modern Nixpkgs (25.05+) provides a unified 'apple-sdk' derivation.
-  # Legacy Nixpkgs (24.05/24.11) uses 'darwin.apple_sdk.frameworks'.
+  # separately
   darwinBuildInputs =
-    if apple-sdk != null then
-      # Unified SDK: single package provides all frameworks
-      [ apple-sdk ]
-    else
-      with darwin.apple_sdk.frameworks;
-      [ Accelerate CoreVideo CoreGraphics ]
-      ++ lib.optional useMetalKit MetalKit;
+    with darwin.apple_sdk.frameworks;
+    [
+      Accelerate
+      CoreVideo
+      CoreGraphics
+    ]
+    ++ optionals useMetalKit [ MetalKit ];
 
   cudaBuildInputs = with cudaPackages; [
     cuda_cudart
