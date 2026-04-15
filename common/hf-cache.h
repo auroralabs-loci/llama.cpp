@@ -5,6 +5,8 @@
 
 // Ref: https://huggingface.co/docs/hub/local-cache.md
 
+#include "common.h" // for llama_repo_type
+
 namespace hf_cache {
 
 struct hf_file {
@@ -22,7 +24,8 @@ using hf_files = std::vector<hf_file>;
 // Get files from HF API
 hf_files get_repo_files(
     const std::string & repo_id,
-    const std::string & token
+    const std::string & token,
+    llama_repo_type type = LLAMA_REPO_TYPE_HF
 );
 
 hf_files get_cached_files(const std::string & repo_id = {});

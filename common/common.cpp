@@ -1381,20 +1381,32 @@ common_init_result_ptr common_init_from_params(common_params & params) {
 
 common_init_result::~common_init_result() = default;
 
-std::string get_model_endpoint() {
+std::string get_model_endpoint(llama_repo_type type) {
     const char * model_endpoint_env = getenv("MODEL_ENDPOINT");
     // We still respect the use of environment-variable "HF_ENDPOINT" for backward-compatibility.
     const char * hf_endpoint_env = getenv("HF_ENDPOINT");
-    const char * endpoint_env = model_endpoint_env ? model_endpoint_env : hf_endpoint_env;
-    std::string model_endpoint = "https://huggingface.co/";
-    if (endpoint_env) {
-        model_endpoint = endpoint_env;
-        if (model_endpoint.back() != '/') {
-            model_endpoint += '/';
+    std::string model_endpoint;
+
+    if (type == LLAMA_REPO_TYPE_MS) {
+        if (model_endpoint_env && *model_endpoint_env) {
+            model_endpoint = model_endpoint_env;
+        } else {
+            model_endpoint = "https://www.modelscope.cn/";
         }
+    } else {
+        const char * endpoint_env = model_endpoint_env ? model_endpoint_env : hf_endpoint_env;
+        if (endpoint_env && *endpoint_env) {
+            model_endpoint = endpoint_env;
+        } else {
+            model_endpoint = "https://huggingface.co/";
+        }
+    }
+    if (model_endpoint.back() != '/') {
+        model_endpoint += '/';
     }
     return model_endpoint;
 }
+
 
 void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adapter_lora_info> & lora) {
     std::vector<llama_adapter_lora *> loras;
