@@ -79,7 +79,7 @@ static inline void compute_2d_workgroups(uint32_t total_wg, uint32_t max_per_dim
 
 /* Constants */
 
-#define WEBGPU_DEFAULT_COMMAND_SUBMIT_BATCH_SIZE 32u
+#define WEBGPU_DEFAULT_COMMAND_SUBMIT_BATCH_SIZE 64u
 #define WEBGPU_NUM_PARAM_SLOT_SAFETY_MARGIN      10u
 #define WEBGPU_RUNTIME_WAIT_TIMEOUT_MS           30000u
 #define WEBGPU_RUNTIME_WAIT_TIMEOUT_NS           (WEBGPU_RUNTIME_WAIT_TIMEOUT_MS * 1e6)
@@ -437,34 +437,25 @@ static void ggml_backend_webgpu_check_wait_status(wgpu::WaitStatus wait_status,
 }
 
 #ifdef __EMSCRIPTEN__
-// iOS browsers seem to have very strict limits on the number of in-flight GPU commands, so we need to throttle to avoid failures.
 EM_JS(int, ggml_webgpu_is_ios_browser, (), {
     const ua = navigator.userAgent;
     return (ua.includes('iPhone') || ua.includes('iPad')) ? 1 : 0;
 });
 #endif
 
-static uint32_t ggml_backend_webgpu_get_max_inflight_batches(const wgpu::AdapterInfo & info) {
+// TODO: these next two functions may want tuning across different platforms and workloads,
+static uint32_t ggml_backend_webgpu_get_max_inflight_batches() {
 #ifdef __EMSCRIPTEN__
+    // iOS has very strict limits on the number of in-flight GPU commands,
+    // so we need to throttle to avoid failures.
     if (ggml_webgpu_is_ios_browser()) {
         return 1;
     }
-#else
-    GGML_UNUSED(info);
 #endif
-
     return UINT32_MAX;
 }
 
-static uint32_t ggml_backend_webgpu_get_command_submit_batch_size(const wgpu::AdapterInfo & info) {
-#ifdef __EMSCRIPTEN__
-    if (ggml_webgpu_is_ios_browser()) {
-        return 16;
-    }
-#else
-    GGML_UNUSED(info);
-#endif
-
+static uint32_t ggml_backend_webgpu_get_command_submit_batch_size() {
     return WEBGPU_DEFAULT_COMMAND_SUBMIT_BATCH_SIZE;
 }
 
@@ -534,9 +525,9 @@ static void ggml_backend_webgpu_debug(webgpu_global_context & ctx) {
 #endif
 
 #ifdef GGML_WEBGPU_GPU_PROFILE
-static void ggml_backend_webgpu_collect_profile_futures(webgpu_global_context &             ctx,
-                                                        const std::vector<webgpu_command> & commands,
-                                                        std::vector<wgpu::FutureWaitInfo> & futures) {
+static void ggml_backend_webgpu_collect_profile_futures(webgpu_global_context &                ctx,
+                                                        const std::vector<webgpu_encoded_op> & commands,
+                                                        std::vector<wgpu::FutureWaitInfo> &    futures) {
     for (const auto & command : commands) {
         auto label   = command.pipeline_name;
         auto ts_bufs = command.timestamp_query_bufs;
@@ -3013,6 +3004,8 @@ static ggml_backend_i ggml_backend_webgpu_i = {
     /* .free                    = */ ggml_backend_webgpu_free,
     /* .set_tensor_async        = */ NULL,
     /* .get_tensor_async        = */ NULL,
+    /* .get_tensor_2d_async     = */ NULL,
+    /* .set_tensor_2d_async     = */ NULL,
     /* .cpy_tensor_async        = */ NULL,
     /* .synchronize             = */ NULL,
     /* .graph_plan_create       = */ NULL,
@@ -3170,6 +3163,8 @@ static ggml_backend_buffer_i ggml_backend_webgpu_buffer_interface = {
     /* .memset_tensor   = */ ggml_backend_webgpu_buffer_memset_tensor,
     /* .set_tensor      = */ ggml_backend_webgpu_buffer_set_tensor,
     /* .get_tensor      = */ ggml_backend_webgpu_buffer_get_tensor,
+    /* .set_tensor_2d   = */ NULL,
+    /* .get_tensor_2d   = */ NULL,
     /* .cpy_tensor      = */ NULL,  // TODO: optional, implement this
     /* .clear           = */ ggml_backend_webgpu_buffer_clear,
     /* .reset           = */ NULL,  // TODO: optional, think it coordinates with
@@ -3437,21 +3432,23 @@ static bool create_webgpu_device(ggml_backend_webgpu_reg_context * ctx) {
     }
 #endif
     ctx->webgpu_global_ctx->adapter.GetInfo(&info);
-    ctx->webgpu_global_ctx->command_submit_batch_size = ggml_backend_webgpu_get_command_submit_batch_size(info);
-    ctx->webgpu_global_ctx->max_inflight_batches      = ggml_backend_webgpu_get_max_inflight_batches(info);
+    ctx->webgpu_global_ctx->command_submit_batch_size = ggml_backend_webgpu_get_command_submit_batch_size();
+    ctx->webgpu_global_ctx->max_inflight_batches      = ggml_backend_webgpu_get_max_inflight_batches();
     wgpu::SupportedFeatures features;
     ctx->webgpu_global_ctx->adapter.GetFeatures(&features);
     // we require f16 support
     GGML_ASSERT(ctx->webgpu_global_ctx->adapter.HasFeature(wgpu::FeatureName::ShaderF16));
 
 #ifndef __EMSCRIPTEN__
-    // Only support square f16 matrices of size 8 or 16 for now
+    // Accept f16 subgroup matrix configurations (square or non-square).
+    // NVIDIA GPUs typically report square configs (e.g. 16x16x16),
+    // while Intel Xe2 GPUs report non-square configs (e.g. 8x16x16).
+    // The shaders are already parameterized to handle any M/N/K dimensions.
     bool valid_subgroup_matrix_config = false;
     if (ctx->webgpu_global_ctx->adapter.HasFeature(wgpu::FeatureName::ChromiumExperimentalSubgroupMatrix)) {
         for (size_t i = 0; i < subgroup_matrix_configs.configCount; i++) {
             const wgpu::SubgroupMatrixConfig config = subgroup_matrix_configs.configs[i];
-            if (config.M == config.N && config.N == config.K && (config.K == 8 || config.K == 16) &&
-                config.componentType == wgpu::SubgroupMatrixComponentType::F16 &&
+            if (config.componentType == wgpu::SubgroupMatrixComponentType::F16 &&
                 config.resultComponentType == wgpu::SubgroupMatrixComponentType::F16) {
                 ctx->webgpu_global_ctx->capabilities.sg_mat_m = config.M;
                 ctx->webgpu_global_ctx->capabilities.sg_mat_n = config.N;
@@ -3789,6 +3786,11 @@ static bool ggml_backend_webgpu_device_supports_op(ggml_backend_dev_t dev, const
                 if (!ctx->webgpu_global_ctx->capabilities.supports_subgroup_matrix) {
                     break;
                 }
+                // Head dimensions must be divisible by subgroup matrix dimensions
+                if (src0->ne[0] % ctx->webgpu_global_ctx->capabilities.sg_mat_k != 0 ||
+                    src2->ne[0] % ctx->webgpu_global_ctx->capabilities.sg_mat_n != 0) {
+                    break;
+                }
                 // Head dimensions must fit in workgroup memory with minimum tile sizes
                 size_t     limit_bytes = ctx->webgpu_global_ctx->capabilities.limits.maxComputeWorkgroupStorageSize;
                 const bool has_mask    = op->src[3] != nullptr;
@@ -4042,6 +4044,13 @@ ggml_backend_reg_t ggml_backend_webgpu_reg() {
     ctx.name         = GGML_WEBGPU_NAME;
     ctx.device_count = 0;
 
+    // Keep one Dawn/WebGPU instance alive for the lifetime of the static backend
+    // registry. Recreating it on repeated registry lookups can invalidate
+    // adapter/device references that are still held by the backend/device layer.
+    if (ctx.webgpu_global_ctx != nullptr && ctx.webgpu_global_ctx->instance != nullptr) {
+        return &reg;
+    }
+
     wgpu::InstanceDescriptor               instance_descriptor{};
     std::vector<wgpu::InstanceFeatureName> instance_features = { wgpu::InstanceFeatureName::TimedWaitAny };
     instance_descriptor.requiredFeatures                     = instance_features.data();
@@ -4059,11 +4068,11 @@ ggml_backend_reg_t ggml_backend_webgpu_reg() {
     ctx.webgpu_global_ctx           = webgpu_global_context(new webgpu_global_context_struct());
     ctx.webgpu_global_ctx->instance = std::move(inst);
 
+    // Probe for adapter support
     wgpu::Adapter adapter;
     if (ctx.webgpu_global_ctx->instance != nullptr) {
         wgpu::RequestAdapterOptions options = {};
 
-        // probe for adapter support
         ctx.webgpu_global_ctx->instance.WaitAny(
             ctx.webgpu_global_ctx->instance.RequestAdapter(
                 &options, wgpu::CallbackMode::AllowSpontaneous,
