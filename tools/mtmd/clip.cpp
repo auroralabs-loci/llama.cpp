@@ -1398,6 +1398,9 @@ struct clip_model_loader {
                         hparams.ffn_op = FFN_GELU_ERF;
                         log_ffn_op = "gelu_erf";
                         hparams.image_resize_algo = RESIZE_ALGO_BICUBIC;
+
+                        // reka model performs better when using resize_bicubic, which stretches
+                        // the image to fit fixed square size
                         hparams.image_resize_pad = false;
                     } break;
                 case PROJECTOR_TYPE_GLM4V:
