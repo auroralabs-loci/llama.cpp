@@ -2635,7 +2635,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("HF_TOKEN"));
     add_opt(common_arg(
-        {"-ms", "--ms-repo"}, "<user>/<model>[:quant]",
+        {"-ms", "-msr", "--ms-repo"}, "<user>/<model>[:quant]",
         "ModelScope model repository; quant is optional, case-insensitive, default to Q4_K_M, or falls back to the first file in the repo if Q4_K_M doesn't exist.\n"
         "mmproj is also downloaded automatically if available. to disable, add --no-mmproj\n"
         "example: user/model:Q4_K_M\n"
