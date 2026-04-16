@@ -313,7 +313,7 @@ jobs:
             -DGGML_NATIVE=OFF \
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DGGML_OPENMP=OFF \
-            -DLLAMA_OPENSSL=OFF \
+            -DLLAMA_BUILD_BORINGSSL=ON \
             -DGGML_RPC=ON
           time cmake --build build --config Release -j $(nproc)
 

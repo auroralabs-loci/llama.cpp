@@ -285,7 +285,7 @@ jobs:
             -DGGML_CPU_ALL_VARIANTS=ON \
             -DLLAMA_FATAL_WARNINGS=ON \
             -DGGML_OPENMP=OFF \
-            -DLLAMA_OPENSSL=OFF \
+            -DLLAMA_BUILD_BORINGSSL=ON \
             ${{ env.CMAKE_ARGS }}
           cmake --build build --config Release -j $(nproc)
 
