@@ -684,7 +684,7 @@ static hf_plan get_hf_plan(const common_params_model  & model,
     auto [repo, tag] = common_download_split_repo_tag(model.hf_repo);
 
     if (!opts.offline) {
-        all = hf_cache::get_repo_files(repo, opts.bearer_token);
+        all = hf_cache::get_repo_files(repo, opts.bearer_token, model.repo_type);
     }
     if (all.empty()) {
         all = hf_cache::get_cached_files(repo);

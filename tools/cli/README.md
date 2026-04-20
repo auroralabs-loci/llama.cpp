@@ -89,6 +89,9 @@
 | `-hfv, -hfrv, --hf-repo-v <user>/<model>[:quant]` | Hugging Face model repository for the vocoder model (default: unused)<br/>(env: LLAMA_ARG_HF_REPO_V) |
 | `-hffv, --hf-file-v FILE` | Hugging Face model file for the vocoder model (default: unused)<br/>(env: LLAMA_ARG_HF_FILE_V) |
 | `-hft, --hf-token TOKEN` | Hugging Face access token (default: value from HF_TOKEN environment variable)<br/>(env: HF_TOKEN) |
+| `-ms, -msr, --ms-repo <user>/<model>[:quant]` | ModelScope model repository; quant is optional, case-insensitive, default to Q4_K_M, or falls back to the first file in the repo if Q4_K_M doesn't exist.<br/>mmproj is also downloaded automatically if available. to disable, add --no-mmproj<br/>example: Qwen/Qwen3-4B-GGUF:Q4_K_M<br/>(default: unused)<br/>(env: LLAMA_ARG_MS_REPO) |
+| `-msf, --ms-file FILE` | ModelScope model file. If specified, it will override the quant in --ms-repo (default: unused)<br/>(env: LLAMA_ARG_MS_FILE) |
+| `-mst, --ms-token TOKEN` | ModelScope access token (default: value from MS_TOKEN environment variable)<br/>(env: MS_TOKEN) |
 | `--log-disable` | Log disable |
 | `--log-file FNAME` | Log to file<br/>(env: LLAMA_LOG_FILE) |
 | `--log-colors [on\|off\|auto]` | Set colored logging ('on', 'off', or 'auto', default: 'auto')<br/>'auto' enables colors when output is to a terminal<br/>(env: LLAMA_LOG_COLORS) |

@@ -14,6 +14,12 @@
 #include <vector>
 #include <map>
 
+// Repository type enumeration
+enum llama_repo_type {
+    LLAMA_REPO_TYPE_HF,      // Hugging Face
+    LLAMA_REPO_TYPE_MS,      // ModelScope
+};
+
 #if defined(_WIN32) && !defined(_WIN32_WINNT)
 #define _WIN32_WINNT 0x0A00
 #endif
@@ -292,6 +298,7 @@ struct common_params_model {
     std::string hf_file     = ""; // HF file                                                // NOLINT
     std::string docker_repo = ""; // Docker repo                                            // NOLINT
     std::string name        = ""; // in format <user>/<model>[:<tag>] (tag is optional)     // NOLINT
+    enum llama_repo_type repo_type = LLAMA_REPO_TYPE_HF; // repository type for model downloads // NOLINT
 };
 
 struct common_ngram_mod;
@@ -455,6 +462,7 @@ struct common_params {
     std::set<std::string> model_alias;     // model aliases                                                 // NOLINT
     std::set<std::string> model_tags;      // model tags (informational, not used for routing)              // NOLINT
     std::string hf_token             = ""; // HF token                                                      // NOLINT
+    llama_repo_type repo_type        = LLAMA_REPO_TYPE_HF; // repository type (HF or ModelScope)            // NOLINT
     std::string prompt               = "";                                                                  // NOLINT
     std::string system_prompt        = "";                                                                  // NOLINT
     std::string prompt_file          = ""; // store the external prompt file name                           // NOLINT
@@ -847,7 +855,7 @@ struct ggml_threadpool_params ggml_threadpool_params_from_cpu_params(const cpu_p
 // clear LoRA adapters from context, then apply new list of adapters
 void common_set_adapter_lora(struct llama_context * ctx, std::vector<common_adapter_lora_info> & lora);
 
-std::string                   get_model_endpoint();
+std::string get_model_endpoint(llama_repo_type type = LLAMA_REPO_TYPE_HF);
 
 //
 // Batch utils
