@@ -1661,6 +1661,24 @@ static enum ggml_status ggml_backend_meta_graph_compute(ggml_backend_t backend, 
 
                 ggml_tensor * node = cgraph->nodes[id];
                 int32_t n_used = ggml_node_get_use_count(cgraph, id);
+
+                // Skip MIRRORED nodes that don't consume node
+                auto skip_unrelated = [&]() {
+                    while (id + 1 < cgraph->n_nodes) {
+                        ggml_tensor * next = cgraph->nodes[id+1];
+                        bool uses_node = false;
+                        for (int s = 0; s < GGML_MAX_SRC; s++) {
+                            if (next->src[s] == node) { uses_node = true; break; }
+                        }
+                        if (uses_node) break;
+                        if (ggml_backend_meta_get_split_state(next, false).axis != GGML_BACKEND_SPLIT_AXIS_MIRRORED) {
+                            break;
+                        }
+                        id++;
+                    }
+                };
+
+                skip_unrelated();
                 if (id + 1 >= cgraph->n_nodes) {
                     return idr;
                 }
@@ -1675,10 +1693,12 @@ static enum ggml_status ggml_backend_meta_graph_compute(ggml_backend_t backend, 
                         n_used = ggml_node_get_use_count(cgraph, id);
                     }
                 }
-                if (id + 1 >= cgraph->n_nodes) {
-                    return idr;
-                }
-                {
+                // Chain of MULs with MIRRORED src[1]
+                while (true) {
+                    skip_unrelated();
+                    if (id + 1 >= cgraph->n_nodes) {
+                        return idr;
+                    }
                     ggml_tensor * next = cgraph->nodes[id+1];
                     if (next->op == GGML_OP_MUL && next->src[0] == node &&
                             ggml_backend_meta_get_split_state(next->src[1], false).axis == GGML_BACKEND_SPLIT_AXIS_MIRRORED) {
@@ -1686,6 +1706,8 @@ static enum ggml_status ggml_backend_meta_graph_compute(ggml_backend_t backend, 
                         id++;
                         idr = id;
                         n_used = ggml_node_get_use_count(cgraph, id);
+                    } else {
+                        break;
                     }
                 }
 
