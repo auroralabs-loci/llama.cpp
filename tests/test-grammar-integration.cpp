@@ -1488,6 +1488,23 @@ int main() {
     test_failure_missing_root_symbol();
     test_custom_root_symbol_check();
     test_json_schema();
+    // Test: trigger pattern find() returns correct grammar content start position.
+    // Regression: >>>(?!all) returned 0 (start of match), replaying ">>>" through
+    // the grammar which expected tool names -> "Unexpected empty grammar stack".
+    {
+        // No capturing group: grammar content starts AFTER the match
+        llama_grammar_trigger_pattern p1 { ">>>(?!all)", std::regex(">>>(?!all)") };
+        assert(p1.find(">>>") == 3);
+        assert(p1.find(">>>get_weather") == 3);
+        assert(p1.find(">>>all") == std::string::npos);
+
+        // With capturing group: grammar content starts at the capture
+        llama_grammar_trigger_pattern p2 { ">>>(get_\\w+)", std::regex(">>>(get_\\w+)") };
+        assert(p2.find(">>>get_weather") == 3);
+
+        fprintf(stdout, "  trigger pattern find() tests passed.\n");
+    }
+
     fprintf(stdout, "All tests passed.\n");
     return 0;
 }

@@ -376,18 +376,15 @@ static void print_rule(
 
 size_t llama_grammar_trigger_pattern::find(const std::string & input) const {
     auto find_start_pos = [](const std::smatch & match) {
-        // get from the first matched capturing group to the end of the string
-        size_t start = std::string::npos;
+        // If there's a capturing group, grammar content starts at the first group.
         for (auto i = 1u; i < match.size(); i++) {
             if (match.length(i) > 0) {
-                start = match.position(i);
-                break;
+                return (size_t) match.position(i);
             }
         }
-        if (start == std::string::npos) {
-            start = match.position(0);
-        }
-        return start;
+        // No capturing groups: grammar content starts AFTER the full match.
+        // The matched text is the trigger prefix, not grammar content.
+        return (size_t) (match.position(0) + match.length(0));
     };
 
     if (!pattern.empty() && pattern.front() == '^' && pattern.back() == '$') {
