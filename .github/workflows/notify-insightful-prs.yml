@@ -24,7 +24,7 @@ concurrency:
 jobs:
   notify:
     if: >-
-      vars.UPSTREAM_REPO != '' && (
+      false && vars.UPSTREAM_REPO != '' && (
         github.event_name == 'workflow_dispatch' ||
         (
           github.event.issue.pull_request != null &&
