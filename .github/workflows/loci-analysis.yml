@@ -5,6 +5,7 @@ on:
       - loci/main-*
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 jobs:
   loci:
@@ -28,7 +29,7 @@ jobs:
 
       - name: Compute target
         id: target
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'loci/main-'))
         run: |
           branch="${{ github.ref_name }}"
           sha="${branch#loci/main-}"
