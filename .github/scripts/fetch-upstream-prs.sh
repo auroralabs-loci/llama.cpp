@@ -84,6 +84,11 @@ while true; do
   fi
 
   while read -r pr; do
+    if [ "$manual_mode" -eq 0 ] && [ "$selected_pulls_count" -ge "$max_pulls" ]; then
+      echo "Quota of ${max_pulls} reached, stopping."
+      break 2
+    fi
+
     pull_num=$(jq -r '.number' <<<"$pr")
     pull_head_sha=$(jq -r '.head.sha' <<<"$pr")
     pull_head_ref=$(jq -r '.head.ref' <<<"$pr")
@@ -153,10 +158,6 @@ while true; do
         git push origin "refs/heads/${pending_branch}:refs/heads/${pending_branch}" --force
         selected_pulls_count=$((selected_pulls_count + 1))
         echo "  PR #${pull_num}: added as pending (${selected_pulls_count})."
-        if [ "$selected_pulls_count" -ge "$max_pulls" ]; then
-          echo "Quota of ${max_pulls} reached, stopping."
-          break 2
-        fi
         continue
       else
         echo "  PR #${pull_num}: created/updated ${loci_main_branch}. Continuing with PR."
@@ -221,11 +222,6 @@ while true; do
 
     selected_pulls_count=$((selected_pulls_count + 1))
     echo "  PR #${pull_num}: added (${selected_pulls_count})."
-
-    if [ "$manual_mode" -eq 0 ] && [ "$selected_pulls_count" -ge "$max_pulls" ]; then
-      echo "Quota of ${max_pulls} reached, stopping."
-      break 2
-    fi
   done < <(echo "$pulls" | jq -c '.[]' 2>/dev/null)
 
   # In manual mode, we only process one PR, so break after first iteration
