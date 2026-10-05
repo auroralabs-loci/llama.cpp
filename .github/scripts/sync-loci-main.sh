@@ -25,9 +25,8 @@ loci_main_branch="loci/main-${short_sha}"
 if ! git merge-base --is-ancestor "$base_sha" "refs/remotes/origin/main" 2>/dev/null; then
   echo "Commit ${base_sha} not in main. Updating main branch." >&2
   git checkout -B main "$base_sha"
-  git restore --source refs/remotes/origin/overlay -- .github/workflows/loci-analysis.yml || true
-  if [ -n "$(git status --porcelain)" ]; then
-    git add -A
+  git restore --source refs/remotes/origin/overlay --staged --worktree -- .github/workflows/loci-analysis.yml || true
+  if ! git diff --cached --quiet; then
     git commit -m "Add loci-analysis workflow from overlay"
   fi
   git push origin "main:refs/heads/main" --force
@@ -54,9 +53,9 @@ fi
 git checkout -B "${loci_main_branch}" "${base_sha}"
 #--------------------------------------------------#
 
-git restore --source refs/remotes/origin/overlay -- .github/workflows/loci-analysis.yml || true
-if [ -n "$(git status --porcelain)" ]; then
-  git add -A
+# --staged: upstream .gitignore can ignore .github (opencv's '.*'), and 'git add' would then skip it
+git restore --source refs/remotes/origin/overlay --staged --worktree -- .github/workflows/loci-analysis.yml || true
+if ! git diff --cached --quiet; then
   git commit -m "Add loci-analysis workflow from overlay"
 fi
 git push origin "${loci_main_branch}" --force
