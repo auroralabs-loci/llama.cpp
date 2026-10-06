@@ -41,6 +41,7 @@ fi
 
 > /tmp/pulls.ndjson
 selected_pulls_count=0
+new_bases=" "
 manual_mode=0
 max_pulls="${MAX_UPSTREAM_PRS:-2}"
 
@@ -67,6 +68,14 @@ else
   cutoff=$(date -u -d "${lookback_days} days ago" +%Y-%m-%dT%H:%M:%SZ)
   per_page=20
   page=1
+
+  # GitHub delays scheduled runs, so a :30 cron can land in the next hour and sync twice in it.
+  today=$(date -u +%Y-%m-%d)
+  opened_today=$(gh pr list -R "$GITHUB_REPOSITORY" --state all --search "created:>=${today}" --limit 200 --json number --jq length)
+  pending_count=$(git ls-remote --heads origin 'refs/heads/loci/pending-pr-*' | wc -l)
+  max_pulls=$((max_pulls - opened_today - pending_count))
+  [ "$max_pulls" -ge 0 ] || max_pulls=0
+  echo "Daily quota: ${MAX_UPSTREAM_PRS:-2}, already used today: ${opened_today} opened + ${pending_count} pending."
 
   echo "Searching for ${max_pulls} valid pull requests targeting ${UPSTREAM_DEFAULT}, updated since ${cutoff}."
 fi
@@ -141,9 +150,14 @@ while true; do
 
     # Create or update base branch if needed (must happen before conflict check when using loci base)
     if loci_main_branch=$(bash "$SCRIPT_DIR/sync-loci-main.sh" "$merge_base"); then
-      : # Branch already up-to-date
+      case "$new_bases" in *" ${merge_base} "*) base_is_new=1 ;; *) base_is_new=0 ;; esac
     else
-      # Branch was created/updated — push pending branch and skip PR creation
+      new_bases="${new_bases}${merge_base} "
+      base_is_new=1
+    fi
+
+    # Base analysis was only just triggered: a PR run now would fail with "version does not exist"
+    if [ "$base_is_new" -eq 1 ]; then
       if [ "$manual_mode" -eq 0 ]; then
         pending_branch="loci/pending-pr-${pull_num}-${sanitized_branch}"
         echo "  PR #${pull_num}: ${loci_main_branch} just triggered to create/update. Pushing pending branch: ${pending_branch}."

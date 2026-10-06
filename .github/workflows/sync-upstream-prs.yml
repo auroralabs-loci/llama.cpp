@@ -42,12 +42,33 @@ jobs:
           current_hour=$(date -u +%-H)
           if [ -z "$SYNC_HOURS" ]; then
             echo "SYNC_PRS_HOURS not set, running by default."
-          elif [[ ",$SYNC_HOURS," != *",$current_hour,"* ]]; then
+            exit 0
+          fi
+
+          # GitHub can start a :30 cron well into the next hour, so each sync hour also accepts the hour after it.
+          late=""
+          for h in ${SYNC_HOURS//,/ }; do
+            if [ "$current_hour" -eq "$h" ]; then late=0; break; fi
+            if [ "$current_hour" -eq $(( (h + 1) % 24 )) ]; then late=1; fi
+          done
+          if [ -z "$late" ]; then
             echo "Hour ${current_hour} not in schedule (${SYNC_HOURS}). Skipping."
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Hour ${current_hour} matches schedule (${SYNC_HOURS}). Running."
+            exit 0
           fi
+
+          window_start=$(date -u -d "${late} hour ago" +%Y-%m-%dT%H:00:00Z)
+          for run_id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-upstream-prs.yml/runs?event=schedule&per_page=100&created=%3E%3D${window_start}" \
+                            --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID}) | .id"); do
+            sync_step=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
+                          --jq '[.jobs[].steps[] | select(.name == "Fetch and process upstream PRs") | .conclusion] | first // ""')
+            if [ "$sync_step" = "success" ]; then
+              echo "Scheduled sync already succeeded since ${window_start} (run ${run_id}). Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "Hour ${current_hour} is in the window of schedule (${SYNC_HOURS}), no sync since ${window_start}. Running."
 
       - uses: actions/checkout@v5
         if: steps.schedule.outputs.skip != 'true'
