@@ -1,0 +1,101 @@
+name: Sync Upstream PRs
+on:
+  schedule:
+    - cron: '30 * * * *'  # hourly at :30, controlled by SYNC_PRS_HOURS
+  workflow_dispatch:
+    inputs:
+      pr_url:
+        description: 'Upstream PR URL to mirror (e.g., https://github.com/owner/repo/pull/123)'
+        required: false
+        type: string
+      base_sha:
+        description: 'Upstream commit SHA: alone creates loci/main-{sha} branch, with pr_url overrides merge-base with main'
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-pulls
+  cancel-in-progress: false
+
+jobs:
+  sync-pulls:
+    if: vars.UPSTREAM_REPO != '' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/overlay')
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
+      UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
+      SYNC_HOURS: '${{ vars.SYNC_PRS_HOURS }}'
+      MAX_UPSTREAM_PRS: '${{ vars.MIRROR_MAX_UPSTREAM_PRS }}'
+      UPSTREAM_PR_LOOKBACK_DAYS: '${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}'
+
+    steps:
+      - name: Check schedule
+        id: schedule
+        if: github.event_name == 'schedule'
+        run: |
+          current_hour=$(date -u +%-H)
+          if [ -z "$SYNC_HOURS" ]; then
+            echo "SYNC_PRS_HOURS not set, running by default."
+            exit 0
+          fi
+
+          # GitHub can start a :30 cron well into the next hour, so each sync hour also accepts the hour after it.
+          late=""
+          for h in ${SYNC_HOURS//,/ }; do
+            if [ "$current_hour" -eq "$h" ]; then late=0; break; fi
+            if [ "$current_hour" -eq $(( (h + 1) % 24 )) ]; then late=1; fi
+          done
+          if [ -z "$late" ]; then
+            echo "Hour ${current_hour} not in schedule (${SYNC_HOURS}). Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          window_start=$(date -u -d "${late} hour ago" +%Y-%m-%dT%H:00:00Z)
+          for run_id in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-upstream-prs.yml/runs?event=schedule&per_page=100&created=%3E%3D${window_start}" \
+                            --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID}) | .id"); do
+            sync_step=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
+                          --jq '[.jobs[].steps[] | select(.name == "Fetch and process upstream PRs") | .conclusion] | first // ""')
+            if [ "$sync_step" = "success" ]; then
+              echo "Scheduled sync already succeeded since ${window_start} (run ${run_id}). Skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "Hour ${current_hour} is in the window of schedule (${SYNC_HOURS}), no sync since ${window_start}. Running."
+
+      - uses: actions/checkout@v5
+        if: steps.schedule.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+          token: ${{ env.GH_TOKEN }}
+
+      - name: Resolve upstream's default branch
+        if: steps.schedule.outputs.skip != 'true'
+        id: upstream
+        shell: bash -euo pipefail {0}
+        run: |
+          default_branch=$(gh api "repos/${UPSTREAM_REPO}" --jq .default_branch)
+          echo "default_branch=${default_branch}" >> "$GITHUB_OUTPUT"
+          echo "Default branch: ${default_branch}"
+
+      - name: Fetch and process upstream PRs
+        if: steps.schedule.outputs.skip != 'true'
+        id: refresh
+        env:
+          UPSTREAM_DEFAULT: ${{ steps.upstream.outputs.default_branch }}
+          UPSTREAM_PR_LOOKBACK_DAYS: ${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}
+          MAX_UPSTREAM_PRS: ${{ vars.MIRROR_MAX_UPSTREAM_PRS }}
+          PR_URL: ${{ github.event.inputs.pr_url }}
+          BASE_SHA: ${{ github.event.inputs.base_sha }}
+        run: bash .github/scripts/fetch-upstream-prs.sh
+
+      - name: Upsert mirror branches & PRs
+        if: steps.schedule.outputs.skip != 'true' && steps.refresh.outputs.prs_to_sync == 'yes'
+        run: bash .github/scripts/process-prs.sh
