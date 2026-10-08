@@ -1,6 +1,14 @@
+if (DEFINED GGML_CANN AND NOT GGML_CANN)
+    return()
+endif()
+
 if ("cann${CANN_INSTALL_DIR}" STREQUAL "cann" AND DEFINED ENV{ASCEND_TOOLKIT_HOME})
     set(CANN_INSTALL_DIR $ENV{ASCEND_TOOLKIT_HOME})
     message(STATUS "CANN: updated CANN_INSTALL_DIR from ASCEND_TOOLKIT_HOME=$ENV{ASCEND_TOOLKIT_HOME}")
+endif()
+
+if (NOT CANN_INSTALL_DIR AND NOT DEFINED ENV{ASCEND_TOOLKIT_HOME})
+    return()
 endif()
 
 # Auto-detech Soc type and Soc version, if detect failed, will abort build
