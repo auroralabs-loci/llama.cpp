@@ -15670,8 +15670,14 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
         case GGML_OP_VIEW:
         case GGML_OP_PERMUTE:
         case GGML_OP_TRANSPOSE:
-        case GGML_OP_RMS_NORM:
             return true;
+        case GGML_OP_RMS_NORM:
+            // the RMS_NORM dispatch maps ne01/ne02/ne03 directly to the X/Y/Z workgroup
+            // counts (unlike NORM/L2_NORM, which bucket nrows into a bounded grid),
+            // so reject shapes that would overflow the device's workgroup count limits.
+            return op->src[0]->ne[1] <= device->properties.limits.maxComputeWorkGroupCount[0] &&
+                   op->src[0]->ne[2] <= device->properties.limits.maxComputeWorkGroupCount[1] &&
+                   op->src[0]->ne[3] <= device->properties.limits.maxComputeWorkGroupCount[2];
         case GGML_OP_GROUP_NORM:
             return ggml_is_contiguous(op->src[0]);
         case GGML_OP_NORM:
