@@ -99,3 +99,10 @@ jobs:
       - name: Upsert mirror branches & PRs
         if: steps.schedule.outputs.skip != 'true' && steps.refresh.outputs.prs_to_sync == 'yes'
         run: bash .github/scripts/process-prs.sh
+
+      # GitHub lists a workflow only after its first trigger, so each sync disables the ones main newly brought in.
+      - name: Disable upstream workflows
+        if: ${{ !cancelled() && steps.schedule.outputs.skip != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/disable-upstream-workflows.sh
