@@ -21,6 +21,8 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.MIRROR_REPOS_WRITE_PAT }}
       UPSTREAM_REPO: '${{ vars.UPSTREAM_REPO }}'
+      UPSTREAM_GERRIT_URL: '${{ vars.UPSTREAM_GERRIT_URL }}'
+      UPSTREAM_GERRIT_PROJECT: '${{ vars.UPSTREAM_GERRIT_PROJECT }}'
 
     steps:
       - uses: actions/checkout@v5

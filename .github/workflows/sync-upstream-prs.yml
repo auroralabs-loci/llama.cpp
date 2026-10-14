@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_url:
-        description: 'Upstream PR URL to mirror (e.g., https://github.com/owner/repo/pull/123)'
+        description: 'Upstream PR or Gerrit change URL to mirror (e.g., https://github.com/owner/repo/pull/123)'
         required: false
         type: string
       base_sha:
@@ -33,6 +33,9 @@ jobs:
       SYNC_HOURS: '${{ vars.SYNC_PRS_HOURS }}'
       MAX_UPSTREAM_PRS: '${{ vars.MIRROR_MAX_UPSTREAM_PRS }}'
       UPSTREAM_PR_LOOKBACK_DAYS: '${{ vars.MIRROR_UPSTREAM_PR_LOOKBACK_DAYS }}'
+      UPSTREAM_GERRIT_URL: '${{ vars.UPSTREAM_GERRIT_URL }}'
+      UPSTREAM_GERRIT_PROJECT: '${{ vars.UPSTREAM_GERRIT_PROJECT }}'
+      UPSTREAM_GERRIT_QUERY: '${{ vars.UPSTREAM_GERRIT_QUERY }}'
 
     steps:
       - name: Check schedule
@@ -94,7 +97,7 @@ jobs:
           MAX_UPSTREAM_PRS: ${{ vars.MIRROR_MAX_UPSTREAM_PRS }}
           PR_URL: ${{ github.event.inputs.pr_url }}
           BASE_SHA: ${{ github.event.inputs.base_sha }}
-        run: bash .github/scripts/fetch-upstream-prs.sh
+        run: bash .github/scripts/fetch-upstream-${{ vars.UPSTREAM_GERRIT_URL && 'gerrit' || 'prs' }}.sh
 
       - name: Upsert mirror branches & PRs
         if: steps.schedule.outputs.skip != 'true' && steps.refresh.outputs.prs_to_sync == 'yes'

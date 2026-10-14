@@ -19,6 +19,9 @@ set -euo pipefail
 
 base_sha="$1"
 short_sha="${base_sha:0:7}"
+
+# Callers capture stdout as the branch name, so git's output goes to stderr.
+exec 3>&1 1>&2
 loci_main_branch="loci/main-${short_sha}"
 
 # Update main branch if base_sha is newer than what's already there
@@ -39,8 +42,8 @@ if git ls-remote --exit-code --heads origin "refs/heads/${loci_main_branch}" &>/
   branch_hash=$(git rev-parse "refs/remotes/origin/${loci_main_branch}:.github/workflows/loci-analysis.yml" 2>/dev/null || true)
 
   if [ "$overlay_hash" = "$branch_hash" ]; then
-    git checkout origin/overlay -- .
-    echo "$loci_main_branch"
+    git checkout origin/overlay -- . && git reset -q
+    echo "$loci_main_branch" >&3
     exit 0 # branch is up-to-date
   fi
 
@@ -61,8 +64,9 @@ fi
 git push origin "${loci_main_branch}" --force
 
 #--------------------------------------------------#
-git checkout origin/overlay -- .
+# Unstaged, or the next branch this run creates commits the restored scripts with it.
+git checkout origin/overlay -- . && git reset -q
 #--------------------------------------------------#
 
-echo "$loci_main_branch"
+echo "$loci_main_branch" >&3
 exit 1 # branch was updated/created
